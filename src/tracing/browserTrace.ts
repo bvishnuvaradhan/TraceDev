@@ -8,73 +8,112 @@ export async function startBrowserTrace(
     const { Runtime, Network } = client;
 
     await Runtime.enable();
+
     await Network.enable();
 
-    Runtime.consoleAPICalled((params: any) => {
+    Runtime.consoleAPICalled(
+        (params: any) => {
 
-        const event = traceStore.add(
-            "console",
-            {
-                type: params.type,
-                args: params.args
-            }
-        );
+            const event =
+                traceStore.add(
+                    "console",
+                    {
+                        type: params.type,
+                        args: params.args
+                    }
+                );
 
-        console.log(
-            "TraceDev Event:",
-            event
-        );
-    });
+            console.log(
+                "TraceDev Console Event:",
+                event
+            );
+        }
+    );
 
-    Runtime.exceptionThrown((params: any) => {
+    Runtime.exceptionThrown(
+        (params: any) => {
 
-        const event = traceStore.add(
-            "exception",
-            {
-                text: params.exceptionDetails?.text,
-                exceptionDetails: params.exceptionDetails
-            }
-        );
+            const event =
+                traceStore.add(
+                    "exception",
+                    {
+                        text:
+                            params
+                                .exceptionDetails
+                                ?.text,
 
-        console.log(
-            "TraceDev Event:",
-            event
-        );
-    });
+                        exceptionDetails:
+                            params.exceptionDetails
+                    }
+                );
 
-    Network.requestWillBeSent((params: any) => {
+            console.log(
+                "TraceDev Exception Event:",
+                event
+            );
+        }
+    );
 
-        const event = traceStore.add(
-            "request",
-            {
-                requestId: params.requestId,
-                method: params.request.method,
-                url: params.request.url
-            }
-        );
+    Network.requestWillBeSent(
+        (params: any) => {
 
-        console.log(
-            "TraceDev Event:",
-            event
-        );
-    });
+            const request =
+                traceStore.startRequest(
+                    params.requestId,
+                    params.request.method,
+                    params.request.url
+                );
 
-    Network.responseReceived((params: any) => {
+            traceStore.add(
+                "request",
+                {
+                    requestId:
+                        params.requestId,
 
-        const event = traceStore.add(
-            "response",
-            {
-                requestId: params.requestId,
-                status: params.response.status,
-                url: params.response.url
-            }
-        );
+                    method:
+                        params.request.method,
 
-        console.log(
-            "TraceDev Event:",
-            event
-        );
-    });
+                    url:
+                        params.request.url
+                }
+            );
+
+            console.log(
+                "TraceDev Request Started:",
+                request
+            );
+        }
+    );
+
+    Network.responseReceived(
+        (params: any) => {
+
+            const request =
+                traceStore.completeRequest(
+                    params.requestId,
+                    params.response.status
+                );
+
+            traceStore.add(
+                "response",
+                {
+                    requestId:
+                        params.requestId,
+
+                    status:
+                        params.response.status,
+
+                    url:
+                        params.response.url
+                }
+            );
+
+            console.log(
+                "TraceDev Request Completed:",
+                request
+            );
+        }
+    );
 
     console.log(
         "TraceDev: Browser tracing started"
