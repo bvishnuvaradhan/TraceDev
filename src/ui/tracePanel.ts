@@ -1,22 +1,9 @@
 import * as vscode from "vscode";
-
-import {
-    traceStore
-} from "../tracing/traceStore";
-
-import {
-    TraceEvent,
-    NetworkTrace
-} from "../tracing/traceStoreTypes";
-
-import {
-    Trace
-} from "../tracing/traceModel";
-
+import { traceStore } from "../tracing/traceStore";
 
 export class TracePanel {
 
-    public static currentPanel:
+    private static currentPanel:
         TracePanel | undefined;
 
     private readonly panel:
@@ -25,195 +12,204 @@ export class TracePanel {
     private readonly disposables:
         vscode.Disposable[] = [];
 
-
     private constructor(
         panel: vscode.WebviewPanel
     ) {
 
         this.panel = panel;
 
+        this.panel.webview.options = {
+            enableScripts: true
+        };
+
         this.panel.webview.html =
             this.getHtml();
 
 
         /*
-         * Send existing data when
-         * the panel is opened.
+         * Send the current trace data whenever
+         * the store changes.
          */
-
-        this.sendExistingData();
-
-
-        /*
-         * Listen for new TraceStore events.
-         */
-
         this.disposables.push(
+
             traceStore.onEvent(
                 (event) => {
 
-                    this.handleEvent(
+                    console.log(
+                        "TraceDev UI Event:",
                         event
                     );
+
+                    this.sendSnapshot();
                 }
             )
         );
 
 
         /*
-         * Handle panel closing.
+         * If the panel becomes visible again,
+         * refresh the UI.
          */
+        this.disposables.push(
 
-        this.panel.onDidDispose(
+            this.panel.onDidChangeViewState(
+                () => {
+
+                    if (
+                        this.panel.visible
+                    ) {
+
+                        this.sendSnapshot();
+                    }
+                }
+            )
+        );
+
+
+        /*
+         * Dispose everything when the panel closes.
+         */
+        this.disposables.push(
+
+            this.panel.onDidDispose(
+                () => {
+
+                    this.dispose();
+                }
+            )
+        );
+
+
+        /*
+         * Give the Webview a moment to load,
+         * then send existing data.
+         */
+        setTimeout(
             () => {
 
-                this.dispose();
+                this.sendSnapshot();
 
             },
-            null,
-            this.disposables
+            300
         );
     }
 
 
+    /*
+     * Open TraceDev panel.
+     */
     public static createOrShow(
         extensionUri: vscode.Uri
-    ) {
+    ): void {
 
         const column =
-            vscode.ViewColumn.Two;
+            vscode.ViewColumn.One;
 
 
+        /*
+         * If panel already exists,
+         * just reveal it.
+         */
         if (
             TracePanel.currentPanel
         ) {
 
-            TracePanel.currentPanel
-                .panel.reveal(
-                    column
-                );
+            TracePanel.currentPanel.panel.reveal(
+                column
+            );
+
+            TracePanel.currentPanel.sendSnapshot();
 
             return;
         }
 
 
+        /*
+         * Create Webview panel.
+         */
         const panel =
             vscode.window.createWebviewPanel(
-                "tracedev",
+
+                "tracedevTrace",
 
                 "TraceDev",
 
                 column,
 
                 {
-                    enableScripts: true
+                    enableScripts: true,
+
+                    retainContextWhenHidden: true
                 }
             );
 
 
         TracePanel.currentPanel =
-            new TracePanel(
-                panel
-            );
+            new TracePanel(panel);
     }
 
 
     /*
-     * Send existing TraceStore data
+     * Send complete current state
      * to the Webview.
      */
+    private sendSnapshot(): void {
 
-    private sendExistingData() {
+        try {
 
-        const requests:
-            NetworkTrace[] =
-            traceStore.getRequests();
+            const requests =
+                traceStore.getRequests();
 
+            const events =
+                traceStore.getAll();
 
-        const events:
-            TraceEvent[] =
-            traceStore.getAll();
-
-
-        const traces:
-            Trace[] =
-            traceStore.getTraces();
+            const traces =
+                traceStore.getTraces();
 
 
-        this.panel.webview.postMessage({
+            console.log(
+                "TraceDev UI Data:",
+                {
+                    requests,
+                    events,
+                    traces
+                }
+            );
 
-            type:
-                "initialData",
-
-            requests,
-
-            events,
-
-            traces
-        });
-    }
-
-
-    /*
-     * Handle new TraceStore events.
-     */
-
-    private handleEvent(
-        event: TraceEvent
-    ) {
-
-        /*
-         * Network events cause
-         * the network list to refresh.
-         */
-
-        if (
-            event.type === "request" ||
-            event.type === "response"
-        ) {
 
             this.panel.webview.postMessage({
 
-                type:
-                    "networkUpdate",
+                type: "snapshot",
 
-                requests:
-                    traceStore.getRequests(),
+                requests,
 
-                traces:
-                    traceStore.getTraces()
+                events,
+
+                traces
             });
 
-            return;
+        } catch (error) {
+
+            console.error(
+                "TraceDev UI Snapshot Error:",
+                error
+            );
         }
-
-
-        /*
-         * Console and exception events
-         * are sent individually.
-         */
-
-        this.panel.webview.postMessage({
-
-            type:
-                "traceEvent",
-
-            event
-        });
     }
 
 
     /*
-     * Webview HTML.
+     * Generate Webview HTML.
      */
-
     private getHtml(): string {
 
-        return `
+        const nonce =
+            getNonce();
 
-<!DOCTYPE html>
 
-<html>
+        return `<!DOCTYPE html>
+
+<html lang="en">
 
 <head>
 
@@ -221,425 +217,424 @@ export class TracePanel {
 
 <meta
     name="viewport"
-    content="width=device-width,
-             initial-scale=1.0"
+    content="width=device-width, initial-scale=1.0"
 >
+
+<meta
+    http-equiv="Content-Security-Policy"
+    content="
+        default-src 'none';
+        style-src 'unsafe-inline';
+        script-src 'nonce-${nonce}';
+    "
+>
+
+
+<title>TraceDev</title>
 
 
 <style>
 
+    * {
+        box-sizing: border-box;
+    }
 
-body {
 
-    font-family:
-        var(--vscode-font-family);
+    body {
 
-    color:
-        var(--vscode-foreground);
+        margin: 0;
 
-    background:
-        var(--vscode-editor-background);
+        padding: 28px;
 
-    padding:
-        20px;
+        background: #111111;
 
-    margin:
-        0;
-}
+        color: #dddddd;
 
+        font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
 
-h1 {
+        font-size: 14px;
+    }
 
-    font-size:
-        24px;
 
-    margin-bottom:
-        20px;
-}
+    h1 {
 
+        margin: 0 0 26px 0;
 
-h2 {
+        font-size: 30px;
 
-    font-size:
-        15px;
+        color: #eeeeee;
+    }
 
-    margin-top:
-        28px;
 
-    margin-bottom:
-        12px;
+    h2 {
 
-    letter-spacing:
-        0.5px;
-}
+        margin-top: 34px;
 
+        margin-bottom: 16px;
 
-/* Browser status */
+        font-size: 19px;
 
-.status {
+        color: #eeeeee;
 
-    padding:
-        12px;
+        letter-spacing: 0.3px;
+    }
 
-    border-radius:
-        7px;
 
-    background:
-        var(
-            --vscode-textBlockQuote-background
-        );
+    .connection {
 
-    margin-bottom:
-        25px;
+        display: flex;
 
-    font-size:
-        13px;
-}
+        align-items: center;
 
+        gap: 10px;
 
-.status-dot {
+        padding: 16px;
 
-    display:
-        inline-block;
+        margin-bottom: 30px;
 
-    width:
-        9px;
+        background: #222222;
 
-    height:
-        9px;
+        border-radius: 8px;
 
-    border-radius:
-        50%;
+        font-size: 16px;
+    }
 
-    background:
-        #4ade80;
 
-    margin-right:
-        8px;
-}
+    .connection-dot {
 
+        width: 14px;
 
-/* Page load */
+        height: 14px;
 
-.page-load {
+        border-radius: 50%;
 
-    padding:
-        14px;
+        background: #48e08a;
 
-    margin:
-        10px 0;
+        box-shadow:
+            0 0 8px rgba(
+                72,
+                224,
+                138,
+                0.5
+            );
+    }
 
-    border-radius:
-        7px;
 
-    background:
-        var(
-            --vscode-editor-inactiveSelectionBackground
-        );
+    .empty {
 
-    border-left:
-        4px solid #60a5fa;
-}
+        color: #777777;
 
+        padding: 10px 0;
 
-.page-title {
+        font-size: 14px;
+    }
 
-    font-size:
-        14px;
 
-    font-weight:
-        bold;
+    .page-load {
 
-    margin-bottom:
-        8px;
-}
+        margin-bottom: 22px;
 
+        padding: 16px;
 
-.page-url {
+        background: #1d2428;
 
-    font-family:
-        monospace;
+        border-left:
+            5px solid #4db6ff;
 
-    font-size:
-        12px;
+        border-radius: 7px;
+    }
 
-    opacity:
-        0.8;
 
-    word-break:
-        break-all;
-}
+    .page-load-title {
 
+        font-size: 16px;
 
-.page-meta {
+        font-weight: 600;
 
-    margin-top:
-        8px;
+        margin-bottom: 8px;
+    }
 
-    font-size:
-        12px;
 
-    opacity:
-        0.7;
-}
+    .page-load-url {
 
+        color: #8fcfff;
 
-/* Resources */
+        word-break: break-all;
 
-.resource {
+        margin-bottom: 7px;
+    }
 
-    margin-top:
-        8px;
 
-    padding:
-        9px;
+    .page-load-meta {
 
-    border-radius:
-        5px;
+        color: #999999;
 
-    background:
-        var(
-            --vscode-editor-background
-        );
+        font-size: 12px;
+    }
 
-    border-left:
-        3px solid #4ade80;
-}
 
+    .network-card {
 
-.resource.failed {
+        margin-bottom: 12px;
 
-    border-left-color:
-        #f87171;
-}
+        padding: 16px;
 
+        background: #19343f;
 
-.resource-line {
+        border-left:
+            5px solid #45dc91;
 
-    display:
-        flex;
+        border-radius: 7px;
+    }
 
-    gap:
-        8px;
 
-    align-items:
-        center;
+    .network-card.failed {
 
-    font-family:
-        monospace;
+        border-left-color:
+            #ff6570;
+    }
 
-    font-size:
-        12px;
-}
 
+    .network-header {
 
-.resource-method {
+        display: flex;
 
-    font-weight:
-        bold;
-}
+        align-items: center;
 
+        gap: 12px;
 
-.resource-status {
+        margin-bottom: 8px;
+    }
 
-    margin-left:
-        auto;
 
-    font-weight:
-        bold;
-}
+    .method {
 
+        font-weight: 700;
 
-.resource-url {
+        color: #eeeeee;
 
-    margin-top:
-        5px;
+        font-size: 15px;
+    }
 
-    font-family:
-        monospace;
 
-    font-size:
-        11px;
+    .status {
 
-    opacity:
-        0.75;
+        font-weight: 700;
 
-    word-break:
-        break-all;
-}
+        color: #eeeeee;
 
+        font-size: 15px;
+    }
 
-.resource-time {
 
-    margin-top:
-        5px;
+    .network-url {
 
-    font-size:
-        11px;
+        color: #9bd7ff;
 
-    opacity:
-        0.65;
-}
+        word-break: break-all;
 
+        margin-bottom: 9px;
 
-/* Network */
+        font-size: 14px;
+    }
 
-.network-card {
 
-    padding:
-        12px;
+    .network-meta {
 
-    margin:
-        7px 0;
+        margin-top: 6px;
 
-    border-radius:
-        6px;
+        font-size: 12px;
 
-    background:
-        var(
-            --vscode-editor-inactiveSelectionBackground
-        );
+        color: #999999;
 
-    border-left:
-        4px solid #4ade80;
-}
+        line-height: 1.7;
+    }
 
 
-.network-card.failed {
+    .network-initiator {
 
-    border-left-color:
-        #f87171;
-}
+        margin-top: 10px;
 
+        padding: 10px;
 
-.network-main {
+        background: #142a32;
 
-    display:
-        flex;
+        border-radius: 5px;
 
-    align-items:
-        center;
+        font-size: 12px;
 
-    gap:
-        10px;
+        color: #aaaaaa;
+    }
 
-    font-family:
-        monospace;
 
-    font-size:
-        13px;
-}
+    .initiator-label {
 
+        color: #eeeeee;
 
-.network-status {
+        font-weight: 600;
 
-    margin-left:
-        auto;
+        margin-bottom: 5px;
+    }
 
-    font-weight:
-        bold;
-}
 
+    .initiator-url {
 
-.network-url {
+        color: #8fcfff;
 
-    margin-top:
-        6px;
+        word-break: break-all;
+    }
 
-    font-family:
-        monospace;
 
-    font-size:
-        11px;
+    .console-card {
 
-    opacity:
-        0.75;
+        margin-bottom: 10px;
 
-    word-break:
-        break-all;
-}
+        padding: 14px 16px;
 
+        background: #302c18;
 
-.network-meta {
+        border-left:
+            5px solid #f2c94c;
 
-    margin-top:
-        6px;
+        border-radius: 7px;
+    }
 
-    font-size:
-        11px;
 
-    opacity:
-        0.65;
-}
+    .console-header {
 
+        display: flex;
 
-/* Console */
+        align-items: center;
 
-.console-card {
+        gap: 10px;
 
-    padding:
-        10px;
+        margin-bottom: 7px;
+    }
 
-    margin:
-        7px 0;
 
-    border-radius:
-        6px;
+    .console-level {
 
-    background:
-        var(
-            --vscode-editor-inactiveSelectionBackground
-        );
+        font-weight: 700;
 
-    border-left:
-        4px solid #facc15;
+        color: #f2c94c;
+    }
 
-    font-family:
-        monospace;
 
-    font-size:
-        12px;
-}
+    .console-time {
 
+        color: #999999;
 
-/* Errors */
+        font-size: 12px;
+    }
 
-.error-card {
 
-    padding:
-        10px;
+    .console-message {
 
-    margin:
-        7px 0;
+        color: #dddddd;
 
-    border-radius:
-        6px;
+        white-space: pre-wrap;
 
-    background:
-        var(
-            --vscode-editor-inactiveSelectionBackground
-        );
+        word-break: break-word;
+    }
 
-    border-left:
-        4px solid #f87171;
 
-    font-family:
-        monospace;
+    .error-card {
 
-    font-size:
-        12px;
-}
+        margin-bottom: 10px;
 
+        padding: 14px 16px;
 
-.empty {
+        background: #351c20;
 
-    opacity:
-        0.5;
+        border-left:
+            5px solid #ff6570;
 
-    padding:
-        10px 0;
-}
+        border-radius: 7px;
+    }
 
+
+    .error-title {
+
+        font-weight: 700;
+
+        color: #ff7d86;
+
+        margin-bottom: 7px;
+    }
+
+
+    .error-message {
+
+        color: #dddddd;
+
+        white-space: pre-wrap;
+
+        word-break: break-word;
+    }
+
+
+    .frontend-badge {
+
+        display: inline-block;
+
+        padding: 3px 7px;
+
+        margin-left: 8px;
+
+        border-radius: 4px;
+
+        background: #293d4b;
+
+        color: #9bd7ff;
+
+        font-size: 10px;
+
+        font-weight: 600;
+    }
+
+
+    .backend-badge {
+
+        display: inline-block;
+
+        padding: 3px 7px;
+
+        margin-left: 8px;
+
+        border-radius: 4px;
+
+        background: #3c3525;
+
+        color: #f2c94c;
+
+        font-size: 10px;
+
+        font-weight: 600;
+    }
+
+
+    .section-count {
+
+        color: #777777;
+
+        font-size: 12px;
+
+        font-weight: normal;
+
+        margin-left: 8px;
+    }
+
+
+    a {
+
+        color: inherit;
+
+        text-decoration: none;
+    }
 
 </style>
 
@@ -652,802 +647,1496 @@ h2 {
 <h1>TraceDev</h1>
 
 
-<div class="status">
+<div class="connection">
 
-    <span class="status-dot"></span>
+    <div class="connection-dot"></div>
 
-    Browser Connected
+    <span>
+        Browser Connected
+    </span>
 
 </div>
 
 
-<h2>PAGE LOADS</h2>
+<section>
 
-<div id="pageLoads">
+    <h2>
+        PAGE LOADS
+        <span
+            id="pageLoadCount"
+            class="section-count"
+        ></span>
+    </h2>
 
-    <div class="empty">
+    <div id="pageLoads">
 
-        Waiting for page loads...
+        <div class="empty">
+            Waiting for page loads...
+        </div>
 
     </div>
 
-</div>
+</section>
 
 
-<h2>NETWORK</h2>
+<section>
 
-<div id="network">
+    <h2>
+        NETWORK
+        <span
+            id="networkCount"
+            class="section-count"
+        ></span>
+    </h2>
 
-    <div class="empty">
+    <div id="network">
 
-        Waiting for network activity...
-
-    </div>
-
-</div>
-
-
-<h2>CONSOLE</h2>
-
-<div id="console">
-
-    <div class="empty">
-
-        No console events yet.
+        <div class="empty">
+            Waiting for network activity...
+        </div>
 
     </div>
 
-</div>
+</section>
 
 
-<h2>ERRORS</h2>
+<section>
 
-<div id="errors">
+    <h2>
+        CONSOLE
+        <span
+            id="consoleCount"
+            class="section-count"
+        ></span>
+    </h2>
 
-    <div class="empty">
+    <div id="console">
 
-        No runtime errors.
+        <div class="empty">
+            No console events yet.
+        </div>
 
     </div>
 
-</div>
+</section>
 
 
+<section>
 
-<script>
+    <h2>
+        ERRORS
+        <span
+            id="errorCount"
+            class="section-count"
+        ></span>
+    </h2>
 
+    <div id="errors">
 
-const vscode =
-    acquireVsCodeApi();
+        <div class="empty">
+            No runtime errors.
+        </div>
 
+    </div>
 
-const pageLoads =
-    document.getElementById(
-        "pageLoads"
-    );
+</section>
 
 
-const network =
-    document.getElementById(
-        "network"
-    );
+<script nonce="${nonce}">
 
+(function () {
 
-const consoleContainer =
-    document.getElementById(
-        "console"
-    );
+    "use strict";
 
 
-const errors =
-    document.getElementById(
-        "errors"
-    );
+    /*
+     * Current UI state.
+     */
+    let requests = [];
 
+    let events = [];
 
-let traces = [];
+    let traces = [];
 
-let requests = [];
 
-let consoleEvents = [];
+    /*
+     * DOM helpers.
+     */
+    const pageLoads =
+        document.getElementById(
+            "pageLoads"
+        );
 
-let errorEvents = [];
+    const network =
+        document.getElementById(
+            "network"
+        );
 
+    const consoleContainer =
+        document.getElementById(
+            "console"
+        );
 
+    const errors =
+        document.getElementById(
+            "errors"
+        );
 
-/*
- * Receive messages from
- * the TraceDev extension.
- */
 
-window.addEventListener(
-    "message",
-    (message) => {
+    const pageLoadCount =
+        document.getElementById(
+            "pageLoadCount"
+        );
 
-        const data =
-            message.data;
+    const networkCount =
+        document.getElementById(
+            "networkCount"
+        );
 
+    const consoleCount =
+        document.getElementById(
+            "consoleCount"
+        );
 
-        /*
-         * Initial data.
-         */
+    const errorCount =
+        document.getElementById(
+            "errorCount"
+        );
 
-        if (
-            data.type ===
-            "initialData"
-        ) {
 
-            traces =
-                data.traces || [];
-
-
-            requests =
-                data.requests || [];
-
-
-            const events =
-                data.events || [];
-
-
-            consoleEvents =
-                events.filter(
-                    event =>
-                        event.type ===
-                        "console"
-                );
-
-
-            errorEvents =
-                events.filter(
-                    event =>
-                        event.type ===
-                        "exception"
-                );
-
-
-            renderAll();
-
-            return;
-        }
-
-
-        /*
-         * Network update.
-         */
-
-        if (
-            data.type ===
-            "networkUpdate"
-        ) {
-
-            requests =
-                data.requests || [];
-
-
-            traces =
-                data.traces || [];
-
-
-            renderPageLoads();
-
-            renderNetwork();
-
-            return;
-        }
-
-
-        /*
-         * New console / exception.
-         */
-
-        if (
-            data.type ===
-            "traceEvent"
-        ) {
-
-            const event =
-                data.event;
-
-
-            if (
-                event.type ===
-                "console"
-            ) {
-
-                consoleEvents.push(
-                    event
-                );
-
-                renderConsole();
-            }
-
-
-            if (
-                event.type ===
-                "exception"
-            ) {
-
-                errorEvents.push(
-                    event
-                );
-
-                renderErrors();
-            }
-        }
-
-    }
-);
-
-
-
-function renderAll() {
-
-    renderPageLoads();
-
-    renderNetwork();
-
-    renderConsole();
-
-    renderErrors();
-}
-
-
-
-/*
- * PAGE LOADS
- */
-
-function renderPageLoads() {
-
-    if (
-        traces.length === 0
+    /*
+     * Escape HTML.
+     */
+    function escapeHtml(
+        value
     ) {
 
-        pageLoads.innerHTML =
-            '<div class="empty">' +
-            'Waiting for page loads...' +
-            '</div>';
+        if (
+            value === undefined ||
+            value === null
+        ) {
 
-        return;
+            return "";
+        }
+
+
+        return String(value)
+            .replace(
+                /&/g,
+                "&amp;"
+            )
+            .replace(
+                /</g,
+                "&lt;"
+            )
+            .replace(
+                />/g,
+                "&gt;"
+            )
+            .replace(
+                /"/g,
+                "&quot;"
+            )
+            .replace(
+                /'/g,
+                "&#039;"
+            );
     }
 
 
-    pageLoads.innerHTML =
-        "";
+    /*
+     * Convert timestamp into
+     * local time.
+     */
+    function formatTime(
+        timestamp
+    ) {
+
+        if (
+            !timestamp
+        ) {
+
+            return "";
+        }
 
 
-    [...traces]
-        .reverse()
-        .forEach(
-            trace => {
+        try {
 
-                if (
-                    trace.kind !==
-                    "page-load"
-                ) {
+            return new Date(
+                Number(timestamp)
+            ).toLocaleTimeString();
 
-                    return;
-                }
+        } catch {
+
+            return "";
+        }
+    }
 
 
-                const card =
-                    document.createElement(
-                        "div"
+    /*
+     * Format milliseconds.
+     */
+    function formatDuration(
+        value
+    ) {
+
+        if (
+            value === undefined ||
+            value === null
+        ) {
+
+            return "—";
+        }
+
+
+        const number =
+            Number(value);
+
+
+        if (
+            Number.isNaN(number)
+        ) {
+
+            return "—";
+        }
+
+
+        return Math.max(
+            0,
+            Math.round(number)
+        ) + " ms";
+    }
+
+
+    /*
+     * Get object property safely.
+     */
+    function get(
+        object,
+        key
+    ) {
+
+        if (
+            !object
+        ) {
+
+            return undefined;
+        }
+
+
+        return object[key];
+    }
+
+
+    /*
+     * Get event data.
+     */
+    function eventData(
+        event
+    ) {
+
+        return (
+            event &&
+            event.data
+        ) || {};
+    }
+
+
+    /*
+     * Determine request URL.
+     */
+    function requestUrl(
+        request
+    ) {
+
+        const data =
+            eventData(request);
+
+
+        return (
+            data.url ||
+            request.url ||
+            ""
+        );
+    }
+
+
+    /*
+     * Determine request method.
+     */
+    function requestMethod(
+        request
+    ) {
+
+        const data =
+            eventData(request);
+
+
+        return (
+            data.method ||
+            request.method ||
+            "GET"
+        );
+    }
+
+
+    /*
+     * Determine request status.
+     */
+    function requestStatus(
+        request
+    ) {
+
+        const data =
+            eventData(request);
+
+
+        return (
+            data.status ??
+            request.status ??
+            ""
+        );
+    }
+
+
+    /*
+     * Determine request failure.
+     */
+    function requestFailed(
+        request
+    ) {
+
+        const data =
+            eventData(request);
+
+
+        if (
+            data.failed === true ||
+            request.failed === true
+        ) {
+
+            return true;
+        }
+
+
+        const status =
+            Number(
+                requestStatus(
+                    request
+                )
+            );
+
+
+        return (
+            status >= 400
+        );
+    }
+
+
+    /*
+     * Determine duration.
+     */
+    function requestDuration(
+        request
+    ) {
+
+        const data =
+            eventData(request);
+
+
+        if (
+            data.duration !== undefined
+        ) {
+
+            return data.duration;
+        }
+
+
+        if (
+            request.duration !== undefined
+        ) {
+
+            return request.duration;
+        }
+
+
+        const start =
+            data.startTime ??
+            request.startTime;
+
+
+        const end =
+            data.endTime ??
+            data.completedTime ??
+            request.endTime ??
+            request.completedTime;
+
+
+        if (
+            start !== undefined &&
+            end !== undefined
+        ) {
+
+            return Number(end) -
+                   Number(start);
+        }
+
+
+        return undefined;
+    }
+
+
+    /*
+     * Find initiator.
+     */
+    function getInitiator(
+        request
+    ) {
+
+        const data =
+            eventData(request);
+
+
+        return (
+            data.initiator ||
+            request.initiator
+        );
+    }
+
+
+    /*
+     * Get initiator type.
+     */
+    function initiatorType(
+        initiator
+    ) {
+
+        if (
+            !initiator
+        ) {
+
+            return "";
+        }
+
+
+        return (
+            initiator.type ||
+            ""
+        );
+    }
+
+
+    /*
+     * Get initiator URL.
+     */
+    function initiatorUrl(
+        initiator
+    ) {
+
+        if (
+            !initiator
+        ) {
+
+            return "";
+        }
+
+
+        return (
+            initiator.url ||
+            ""
+        );
+    }
+
+
+    /*
+     * Determine frontend/backend.
+     */
+    function getLayer(
+        url
+    ) {
+
+        if (
+            !url
+        ) {
+
+            return "";
+        }
+
+
+        const value =
+            String(url)
+                .toLowerCase();
+
+
+        if (
+            value.includes(
+                "/api/"
+            )
+        ) {
+
+            return "BACKEND";
+        }
+
+
+        if (
+            value.endsWith(
+                ".js"
+            ) ||
+            value.endsWith(
+                ".css"
+            ) ||
+            value.endsWith(
+                ".html"
+            ) ||
+            value.endsWith(
+                "/"
+            )
+        ) {
+
+            return "FRONTEND";
+        }
+
+
+        return "";
+    }
+
+
+    /*
+     * Render Page Loads.
+     */
+    function renderPageLoads() {
+
+        const pageRequests =
+            requests.filter(
+                function (request) {
+
+                    const url =
+                        requestUrl(
+                            request
+                        );
+
+
+                    return (
+                        requestMethod(
+                            request
+                        ) === "GET" &&
+                        (
+                            url.endsWith("/") ||
+                            url.endsWith(".html")
+                        )
                     );
+                }
+            );
 
 
-                card.className =
-                    "page-load";
+        if (
+            pageRequests.length === 0
+        ) {
+
+            pageLoads.innerHTML =
+
+                '<div class="empty">' +
+                'Waiting for page loads...' +
+                '</div>';
+
+            pageLoadCount.textContent =
+                "";
+
+            return;
+        }
 
 
-                const duration =
-                    trace.duration !==
-                    undefined
-
-                        ? trace.duration +
-                          " ms"
-
-                        : "loading";
+        pageLoadCount.textContent =
+            "(" +
+            pageRequests.length +
+            ")";
 
 
-                const start =
-                    new Date(
-                        trace.startTime
-                    )
-                    .toLocaleTimeString();
+        pageLoads.innerHTML =
+            pageRequests
+                .map(
+                    function (request) {
+
+                        const url =
+                            requestUrl(
+                                request
+                            );
 
 
-                card.innerHTML =
-
-                    '<div class="page-title">' +
-
-                        '🌐 PAGE LOAD' +
-
-                    '</div>' +
+                        const status =
+                            requestStatus(
+                                request
+                            );
 
 
-                    '<div class="page-url">' +
-
-                        escapeHtml(
-                            trace.name
-                        ) +
-
-                    '</div>' +
+                        const duration =
+                            requestDuration(
+                                request
+                            );
 
 
-                    '<div class="page-meta">' +
-
-                        start +
-
-                        ' • ' +
-
-                        duration +
-
-                    '</div>';
+                        const failed =
+                            requestFailed(
+                                request
+                            );
 
 
-                /*
-                 * Resources.
-                 */
+                        return (
 
-                if (
-                    trace.resources &&
-                    trace.resources.length > 0
-                ) {
+                            '<div class="page-load">' +
 
-                    trace.resources.forEach(
-                        resource => {
+                                '<div class="page-load-title">' +
 
-                            const element =
-                                document.createElement(
-                                    "div"
+                                    '🌐 PAGE LOAD' +
+
+                                '</div>' +
+
+                                '<div class="page-load-url">' +
+
+                                    escapeHtml(
+                                        url
+                                    ) +
+
+                                '</div>' +
+
+                                '<div class="page-load-meta">' +
+
+                                    formatTime(
+                                        request.timestamp ||
+                                        request.startTime
+                                    ) +
+
+                                    ' • ' +
+
+                                    formatDuration(
+                                        duration
+                                    ) +
+
+                                    ' • ' +
+
+                                    escapeHtml(
+                                        status
+                                            ? String(status)
+                                            : ""
+                                    ) +
+
+                                    ' ' +
+
+                                    (
+                                        failed
+                                            ? '❌ Failed'
+                                            : '✅ Success'
+                                    ) +
+
+                                '</div>' +
+
+                            '</div>'
+                        );
+                    }
+                )
+                .join("");
+    }
+
+
+    /*
+     * Render Network.
+     */
+    function renderNetwork() {
+
+        if (
+            requests.length === 0
+        ) {
+
+            network.innerHTML =
+
+                '<div class="empty">' +
+                'Waiting for network activity...' +
+                '</div>';
+
+            networkCount.textContent =
+                "";
+
+            return;
+        }
+
+
+        networkCount.textContent =
+            "(" +
+            requests.length +
+            ")";
+
+
+        network.innerHTML =
+            requests
+                .slice()
+                .reverse()
+                .map(
+                    function (request) {
+
+                        const method =
+                            requestMethod(
+                                request
+                            );
+
+
+                        const url =
+                            requestUrl(
+                                request
+                            );
+
+
+                        const status =
+                            requestStatus(
+                                request
+                            );
+
+
+                        const duration =
+                            requestDuration(
+                                request
+                            );
+
+
+                        const failed =
+                            requestFailed(
+                                request
+                            );
+
+
+                        const initiator =
+                            getInitiator(
+                                request
+                            );
+
+
+                        const layer =
+                            getLayer(
+                                url
+                            );
+
+
+                        let initiatorHtml =
+                            "";
+
+
+                        if (
+                            initiator
+                        ) {
+
+                            const type =
+                                initiatorType(
+                                    initiator
                                 );
 
 
-                            element.className =
-                                "resource " +
-                                (
-                                    resource.failed
-                                        ? "failed"
-                                        : ""
+                            const sourceUrl =
+                                initiatorUrl(
+                                    initiator
                                 );
 
 
-                            const status =
-                                resource.status ??
-                                "…";
+                            let location =
+                                "";
 
 
-                            const duration =
-                                resource.duration !==
-                                undefined
+                            if (
+                                initiator.lineNumber !== undefined
+                            ) {
 
-                                    ? resource.duration +
-                                      " ms"
-
-                                    : "loading";
-
-
-                            const icon =
-                                getResourceIcon(
-                                    resource.type
-                                );
+                                location =
+                                    ":" +
+                                    (
+                                        Number(
+                                            initiator.lineNumber
+                                        ) + 1
+                                    );
 
 
-                            element.innerHTML =
+                                if (
+                                    initiator.columnNumber !== undefined
+                                ) {
 
-                                '<div class="resource-line">' +
+                                    location +=
+                                        ":" +
+                                        (
+                                            Number(
+                                                initiator.columnNumber
+                                            ) + 1
+                                        );
+                                }
+                            }
 
-                                    '<span>' +
-                                        icon +
-                                    '</span>' +
 
-                                    '<span class="resource-method">' +
+                            initiatorHtml =
+
+                                '<div class="network-initiator">' +
+
+                                    '<div class="initiator-label">' +
+
+                                        'Initiator: ' +
 
                                         escapeHtml(
-                                            resource.method
+                                            type ||
+                                            "unknown"
+                                        ) +
+
+                                    '</div>' +
+
+                                    (
+                                        sourceUrl
+
+                                            ?
+
+                                            '<div class="initiator-url">' +
+
+                                                escapeHtml(
+                                                    sourceUrl
+                                                ) +
+
+                                                escapeHtml(
+                                                    location
+                                                ) +
+
+                                            '</div>'
+
+                                            :
+
+                                            ''
+                                    ) +
+
+                                '</div>';
+                        }
+
+
+                        return (
+
+                            '<div class="network-card ' +
+
+                                (
+                                    failed
+                                        ? "failed"
+                                        : ""
+                                ) +
+
+                            '">' +
+
+                                '<div class="network-header">' +
+
+                                    '<span class="method">' +
+
+                                        escapeHtml(
+                                            method
                                         ) +
 
                                     '</span>' +
 
-                                    '<span class="resource-status">' +
+                                    '<span class="status">' +
 
-                                        status +
+                                        escapeHtml(
+                                            status
+                                                ? String(status)
+                                                : "—"
+                                        ) +
+
+                                    '</span>' +
+
+                                    (
+                                        layer === "FRONTEND"
+
+                                            ?
+
+                                            '<span class="frontend-badge">' +
+                                            'FRONTEND' +
+                                            '</span>'
+
+                                            :
+
+                                        layer === "BACKEND"
+
+                                            ?
+
+                                            '<span class="backend-badge">' +
+                                            'BACKEND' +
+                                            '</span>'
+
+                                            :
+
+                                            ''
+                                    ) +
+
+                                '</div>' +
+
+                                '<div class="network-url">' +
+
+                                    escapeHtml(
+                                        url
+                                    ) +
+
+                                '</div>' +
+
+                                '<div class="network-meta">' +
+
+                                    'Started: ' +
+
+                                    formatTime(
+                                        get(
+                                            eventData(request),
+                                            "startTime"
+                                        ) ||
+                                        request.startTime
+                                    ) +
+
+                                    ' • Completed: ' +
+
+                                    formatTime(
+                                        get(
+                                            eventData(request),
+                                            "endTime"
+                                        ) ||
+                                        request.endTime ||
+                                        request.completedTime
+                                    ) +
+
+                                    ' • Duration: ' +
+
+                                    formatDuration(
+                                        duration
+                                    ) +
+
+                                    ' • ' +
+
+                                    (
+                                        failed
+                                            ? '❌ Failed'
+                                            : '✅ Success'
+                                    ) +
+
+                                '</div>' +
+
+                                initiatorHtml +
+
+                            '</div>'
+                        );
+                    }
+                )
+                .join("");
+    }
+
+
+    /*
+     * Extract console events.
+     */
+    function getConsoleEvents() {
+
+        return events.filter(
+            function (event) {
+
+                return (
+                    event &&
+                    event.type === "console"
+                );
+            }
+        );
+    }
+
+
+    /*
+     * Render Console.
+     */
+    function renderConsole() {
+
+        const consoleEvents =
+            getConsoleEvents();
+
+
+        if (
+            consoleEvents.length === 0
+        ) {
+
+            consoleContainer.innerHTML =
+
+                '<div class="empty">' +
+                'No console events yet.' +
+                '</div>';
+
+            consoleCount.textContent =
+                "";
+
+            return;
+        }
+
+
+        consoleCount.textContent =
+            "(" +
+            consoleEvents.length +
+            ")";
+
+
+        consoleContainer.innerHTML =
+            consoleEvents
+                .slice()
+                .reverse()
+                .map(
+                    function (event) {
+
+                        const data =
+                            eventData(
+                                event
+                            );
+
+
+                        const level =
+                            data.type ||
+                            data.level ||
+                            "log";
+
+
+                        const values =
+                            data.values ||
+                            data.args ||
+                            [];
+
+
+                        let message =
+                            "";
+
+
+                        if (
+                            Array.isArray(values)
+                        ) {
+
+                            message =
+                                values
+                                    .map(
+                                        function (value) {
+
+                                            if (
+                                                typeof value ===
+                                                "object"
+                                            ) {
+
+                                                try {
+
+                                                    return JSON.stringify(
+                                                        value
+                                                    );
+
+                                                } catch {
+
+                                                    return String(
+                                                        value
+                                                    );
+                                                }
+                                            }
+
+
+                                            return String(
+                                                value
+                                            );
+                                        }
+                                    )
+                                    .join(" ");
+
+                        } else {
+
+                            message =
+                                String(
+                                    values
+                                );
+                        }
+
+
+                        return (
+
+                            '<div class="console-card">' +
+
+                                '<div class="console-header">' +
+
+                                    '<span class="console-level">' +
+
+                                        escapeHtml(
+                                            String(
+                                                level
+                                            ).toUpperCase()
+                                        ) +
+
+                                    '</span>' +
+
+                                    '<span class="console-time">' +
+
+                                        formatTime(
+                                            event.timestamp
+                                        ) +
 
                                     '</span>' +
 
                                 '</div>' +
 
-
-                                '<div class="resource-url">' +
+                                '<div class="console-message">' +
 
                                     escapeHtml(
-                                        resource.url
+                                        message
                                     ) +
 
                                 '</div>' +
 
-
-                                '<div class="resource-time">' +
-
-                                    duration +
-
-                                    ' • ' +
-
-                                    (
-                                        resource.failed
-                                            ? "❌ Failed"
-                                            : "✅ Success"
-                                    ) +
-
-                                '</div>';
+                            '</div>'
+                        );
+                    }
+                )
+                .join("");
+    }
 
 
-                            card.appendChild(
-                                element
+    /*
+     * Render Errors.
+     */
+    function renderErrors() {
+
+        const errorEvents =
+            events.filter(
+                function (event) {
+
+                    if (
+                        !event
+                    ) {
+
+                        return false;
+                    }
+
+
+                    if (
+                        event.type === "error"
+                    ) {
+
+                        return true;
+                    }
+
+
+                    if (
+                        event.type === "console"
+                    ) {
+
+                        const data =
+                            eventData(
+                                event
                             );
-                        }
-                    );
+
+
+                        const level =
+                            String(
+                                data.type ||
+                                data.level ||
+                                ""
+                            ).toLowerCase();
+
+
+                        return (
+                            level === "error"
+                        );
+                    }
+
+
+                    return false;
                 }
+            );
 
 
-                pageLoads.appendChild(
-                    card
-                );
-            }
-        );
-}
+        if (
+            errorEvents.length === 0
+        ) {
 
+            errors.innerHTML =
 
+                '<div class="empty">' +
+                'No runtime errors.' +
+                '</div>';
 
-/*
- * NETWORK
- */
+            errorCount.textContent =
+                "";
 
-function renderNetwork() {
+            return;
+        }
 
-    if (
-        requests.length === 0
-    ) {
 
-        network.innerHTML =
-            '<div class="empty">' +
-            'Waiting for network activity...' +
-            '</div>';
+        errorCount.textContent =
+            "(" +
+            errorEvents.length +
+            ")";
 
-        return;
-    }
-
-
-    network.innerHTML =
-        "";
-
-
-    [...requests]
-        .reverse()
-        .forEach(
-            request => {
-
-                /*
-                 * Don't duplicate
-                 * page-load resources
-                 * in the general network
-                 * section.
-                 */
-
-                const isPageResource =
-                    traces.some(
-                        trace =>
-                            trace.resources.some(
-                                resource =>
-                                    resource.requestId ===
-                                    request.requestId
-                            )
-                    );
-
-
-                if (isPageResource) {
-                    return;
-                }
-
-
-                const card =
-                    document.createElement(
-                        "div"
-                    );
-
-
-                card.className =
-                    "network-card " +
-
-                    (
-                        request.failed
-                            ? "failed"
-                            : ""
-                    );
-
-
-                const status =
-                    request.status ??
-                    "…";
-
-
-                const duration =
-                    request.duration !==
-                    undefined
-
-                        ? request.duration +
-                          " ms"
-
-                        : "pending";
-
-
-                card.innerHTML =
-
-                    '<div class="network-main">' +
-
-                        '<span>' +
-
-                            escapeHtml(
-                                request.method
-                            ) +
-
-                        '</span>' +
-
-
-                        '<span class="network-status">' +
-
-                            status +
-
-                        '</span>' +
-
-                    '</div>' +
-
-
-                    '<div class="network-url">' +
-
-                        escapeHtml(
-                            request.url
-                        ) +
-
-                    '</div>' +
-
-
-                    '<div class="network-meta">' +
-
-                        duration +
-
-                        ' • ' +
-
-                        (
-                            request.failed
-                                ? "❌ Failed"
-                                : "✅ Success"
-                        ) +
-
-                    '</div>';
-
-
-                network.appendChild(
-                    card
-                );
-            }
-        );
-}
-
-
-
-/*
- * CONSOLE
- */
-
-function renderConsole() {
-
-    if (
-        consoleEvents.length === 0
-    ) {
-
-        consoleContainer.innerHTML =
-            '<div class="empty">' +
-            'No console events yet.' +
-            '</div>';
-
-        return;
-    }
-
-
-    consoleContainer.innerHTML =
-        "";
-
-
-    [...consoleEvents]
-        .reverse()
-        .forEach(
-            event => {
-
-                const card =
-                    document.createElement(
-                        "div"
-                    );
-
-
-                card.className =
-                    "console-card";
-
-
-                const time =
-                    new Date(
-                        event.timestamp
-                    )
-                    .toLocaleTimeString();
-
-
-                card.textContent =
-
-                    time +
-
-                    " • 📝 " +
-
-                    event.data.type;
-
-
-                consoleContainer
-                    .appendChild(
-                        card
-                    );
-            }
-        );
-}
-
-
-
-/*
- * ERRORS
- */
-
-function renderErrors() {
-
-    if (
-        errorEvents.length === 0
-    ) {
 
         errors.innerHTML =
-            '<div class="empty">' +
-            'No runtime errors.' +
-            '</div>';
+            errorEvents
+                .slice()
+                .reverse()
+                .map(
+                    function (event) {
 
-        return;
+                        const data =
+                            eventData(
+                                event
+                            );
+
+
+                        const values =
+                            data.values ||
+                            data.args ||
+                            data.message ||
+                            "";
+
+
+                        let message;
+
+
+                        if (
+                            Array.isArray(values)
+                        ) {
+
+                            message =
+                                values
+                                    .map(
+                                        function (value) {
+
+                                            if (
+                                                typeof value ===
+                                                "object"
+                                            ) {
+
+                                                try {
+
+                                                    return JSON.stringify(
+                                                        value
+                                                    );
+
+                                                } catch {
+
+                                                    return String(
+                                                        value
+                                                    );
+                                                }
+                                            }
+
+
+                                            return String(
+                                                value
+                                            );
+                                        }
+                                    )
+                                    .join(" ");
+
+                        } else {
+
+                            message =
+                                String(
+                                    values
+                                );
+                        }
+
+
+                        return (
+
+                            '<div class="error-card">' +
+
+                                '<div class="error-title">' +
+
+                                    'Runtime Error • ' +
+
+                                    formatTime(
+                                        event.timestamp
+                                    ) +
+
+                                '</div>' +
+
+                                '<div class="error-message">' +
+
+                                    escapeHtml(
+                                        message
+                                    ) +
+
+                                '</div>' +
+
+                            '</div>'
+                        );
+                    }
+                )
+                .join("");
     }
 
 
-    errors.innerHTML =
-        "";
+    /*
+     * Render everything.
+     */
+    function render() {
+
+        renderPageLoads();
+
+        renderNetwork();
+
+        renderConsole();
+
+        renderErrors();
+    }
 
 
-    [...errorEvents]
-        .reverse()
-        .forEach(
-            event => {
+    /*
+     * Receive messages from extension.
+     */
+    window.addEventListener(
+        "message",
+        function (event) {
 
-                const card =
-                    document.createElement(
-                        "div"
-                    );
-
-
-                card.className =
-                    "error-card";
+            const message =
+                event.data;
 
 
-                const time =
-                    new Date(
-                        event.timestamp
-                    )
-                    .toLocaleTimeString();
+            if (
+                !message
+            ) {
 
-
-                card.textContent =
-
-                    time +
-
-                    " • 🔴 " +
-
-                    (
-                        event.data.text ||
-                        "Runtime exception"
-                    );
-
-
-                errors.appendChild(
-                    card
-                );
+                return;
             }
-        );
-}
 
 
-
-/*
- * Resource icons.
- */
-
-function getResourceIcon(
-    type
-) {
-
-    switch (type) {
-
-        case "Document":
-            return "📄";
-
-        case "Script":
-            return "⚙️";
-
-        case "Stylesheet":
-            return "🎨";
-
-        case "Image":
-            return "🖼️";
-
-        case "Font":
-            return "🔤";
-
-        default:
-            return "🌐";
-    }
-}
+            console.log(
+                "TraceDev Webview Message:",
+                message.type
+            );
 
 
+            if (
+                message.type ===
+                "snapshot"
+            ) {
 
-/*
- * Prevent HTML injection.
- */
+                requests =
+                    Array.isArray(
+                        message.requests
+                    )
 
-function escapeHtml(
-    value
-) {
+                        ?
 
-    return String(value)
+                        message.requests
 
-        .replace(
-            /&/g,
-            "&amp;"
-        )
+                        :
 
-        .replace(
-            /</g,
-            "&lt;"
-        )
+                        [];
 
-        .replace(
-            />/g,
-            "&gt;"
-        )
 
-        .replace(
-            /"/g,
-            "&quot;"
-        )
+                events =
+                    Array.isArray(
+                        message.events
+                    )
 
-        .replace(
-            /'/g,
-            "&#039;"
-        );
-}
+                        ?
 
+                        message.events
+
+                        :
+
+                        [];
+
+
+                traces =
+                    Array.isArray(
+                        message.traces
+                    )
+
+                        ?
+
+                        message.traces
+
+                        :
+
+                        [];
+
+
+                render();
+
+                return;
+            }
+
+
+            /*
+             * Support the older message
+             * format as well.
+             */
+            if (
+                message.type ===
+                "initialData"
+            ) {
+
+                requests =
+                    Array.isArray(
+                        message.requests
+                    )
+                        ? message.requests
+                        : [];
+
+
+                events =
+                    Array.isArray(
+                        message.events
+                    )
+                        ? message.events
+                        : [];
+
+
+                traces =
+                    Array.isArray(
+                        message.traces
+                    )
+                        ? message.traces
+                        : [];
+
+
+                render();
+
+                return;
+            }
+
+
+            /*
+             * If a single event arrives,
+             * simply wait for the next snapshot.
+             */
+            if (
+                message.type ===
+                "event"
+            ) {
+
+                render();
+
+                return;
+            }
+        }
+    );
+
+
+    /*
+     * Initial render.
+     */
+    render();
+
+
+    console.log(
+        "TraceDev Webview loaded"
+    );
+
+})();
 
 </script>
 
 
 </body>
 
-</html>
-
-`;
+</html>`;
     }
 
 
-    public dispose() {
+    /*
+     * Dispose panel.
+     */
+    public dispose(): void {
 
         TracePanel.currentPanel =
             undefined;
@@ -1461,13 +2150,53 @@ function escapeHtml(
                 this.disposables.pop();
 
 
-            if (disposable) {
+            if (
+                disposable
+            ) {
 
                 disposable.dispose();
             }
         }
 
 
-        this.panel.dispose();
+        if (
+            this.panel
+        ) {
+
+            this.panel.dispose();
+        }
     }
+}
+
+
+/*
+ * Generate a secure nonce
+ * for the Webview CSP.
+ */
+function getNonce(): string {
+
+    const characters =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+
+    let result = "";
+
+
+    for (
+        let i = 0;
+        i < 32;
+        i++
+    ) {
+
+        result +=
+            characters.charAt(
+                Math.floor(
+                    Math.random() *
+                    characters.length
+                )
+            );
+    }
+
+
+    return result;
 }

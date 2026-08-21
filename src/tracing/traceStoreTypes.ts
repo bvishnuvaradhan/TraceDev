@@ -20,4 +20,14 @@ export interface NetworkTrace {
     status?: number;
     duration?: number;
     failed: boolean;
+
+    type?: string;
+
+    initiator?: {
+        type?: string;
+        url?: string;
+        lineNumber?: number;
+        columnNumber?: number;
+        stack?: any;
+    };
 }

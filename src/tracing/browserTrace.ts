@@ -6,6 +6,137 @@ import {
     traceStore
 } from "./traceStore";
 
+function extractInitiator(
+    initiator: any
+): {
+    type?: string;
+    url?: string;
+    lineNumber?: number;
+    columnNumber?: number;
+    stack?: any;
+} {
+
+    const result: {
+        type?: string;
+        url?: string;
+        lineNumber?: number;
+        columnNumber?: number;
+        stack?: any;
+    } = {
+
+        type:
+            initiator.type,
+
+        stack:
+            initiator.stack
+    };
+
+
+    /*
+     * Direct location.
+     */
+
+    if (
+        initiator.url
+    ) {
+
+        result.url =
+            initiator.url;
+
+        result.lineNumber =
+            initiator.lineNumber;
+
+        result.columnNumber =
+            initiator.columnNumber;
+
+        return result;
+    }
+
+
+    /*
+     * Chrome often puts the
+     * useful location inside stack.
+     */
+
+    const stack =
+        initiator.stack;
+
+
+    if (!stack) {
+
+        return result;
+    }
+
+
+    /*
+     * Search normal stack frames.
+     */
+
+    const frames =
+        stack.callFrames || [];
+
+
+    for (
+        const frame of frames
+    ) {
+
+        if (
+            frame.url &&
+            frame.url.startsWith("http")
+        ) {
+
+            result.url =
+                frame.url;
+
+            result.lineNumber =
+                frame.lineNumber;
+
+            result.columnNumber =
+                frame.columnNumber;
+
+            return result;
+        }
+    }
+
+
+    /*
+     * Search parent stack.
+     */
+
+    if (
+        stack.parent
+    ) {
+
+        const parent: {
+            type?: string;
+            url?: string;
+            lineNumber?: number;
+            columnNumber?: number;
+            stack?: any;
+        } =
+            extractInitiator({
+                type:
+                    initiator.type,
+
+                stack:
+                    stack.parent
+            });
+
+
+        if (
+            parent.url
+        ) {
+
+            return {
+                ...result,
+                ...parent
+            };
+        }
+    }
+
+
+    return result;
+}
 
 export async function startBrowserTrace(
     client: BrowserClient
@@ -38,6 +169,59 @@ export async function startBrowserTrace(
     Runtime.consoleAPICalled(
         (params: any) => {
 
+            const args =
+                params.args || [];
+
+
+            const values =
+                args.map(
+                    (arg: any) => {
+
+                        if (
+                            arg.value !==
+                            undefined
+                        ) {
+
+                            return arg.value;
+                        }
+
+
+                        if (
+                            arg.description !==
+                            undefined
+                        ) {
+
+                            return arg.description;
+                        }
+
+
+                        if (
+                            arg.unserializableValue !==
+                            undefined
+                        ) {
+
+                            return arg.unserializableValue;
+                        }
+
+
+                        return "[object]";
+                    }
+                );
+
+
+            console.log(
+                "TraceDev Console Data:",
+                {
+                    type:
+                        params.type,
+
+                    args,
+
+                    values
+                }
+            );
+
+
             const event =
                 traceStore.add(
                     "console",
@@ -46,8 +230,15 @@ export async function startBrowserTrace(
                         type:
                             params.type,
 
-                        args:
-                            params.args
+                        values,
+
+                        args,
+
+                        executionContextId:
+                            params.executionContextId,
+
+                        timestamp:
+                            Date.now()
                     }
                 );
 
@@ -67,19 +258,32 @@ export async function startBrowserTrace(
     Runtime.exceptionThrown(
         (params: any) => {
 
+            const details =
+                params.exceptionDetails;
+
+
             const event =
                 traceStore.add(
                     "exception",
                     {
 
                         text:
-                            params
-                                .exceptionDetails
-                                ?.text,
+                            details?.text,
+
+                        url:
+                            details?.url,
+
+                        lineNumber:
+                            details?.lineNumber,
+
+                        columnNumber:
+                            details?.columnNumber,
+
+                        stackTrace:
+                            details?.stackTrace,
 
                         exceptionDetails:
-                            params
-                                .exceptionDetails
+                            details
                     }
                 );
 
@@ -93,11 +297,34 @@ export async function startBrowserTrace(
 
 
     /*
-     * Request started.
+     * Network request started.
      */
 
     Network.requestWillBeSent(
         (params: any) => {
+
+            /*
+             * Chrome tells us what
+             * initiated the request.
+             */
+
+            const initiator =
+                params.initiator
+                    ? extractInitiator(
+                        params.initiator
+                    )
+                    : undefined;
+
+
+            console.log(
+                "TraceDev Initiator:",
+                initiator
+            );
+
+
+            /*
+             * Store request.
+             */
 
             const request =
                 traceStore.startRequest(
@@ -108,9 +335,15 @@ export async function startBrowserTrace(
 
                     params.request.url,
 
-                    params.type
+                    params.type,
+
+                    initiator
                 );
 
+
+            /*
+             * Store event.
+             */
 
             traceStore.add(
                 "request",
@@ -126,7 +359,12 @@ export async function startBrowserTrace(
                         params.request.url,
 
                     type:
-                        params.type
+                        params.type,
+
+                    initiator,
+
+                    timestamp:
+                        Date.now()
                 }
             );
 
@@ -140,7 +378,7 @@ export async function startBrowserTrace(
 
 
     /*
-     * Response received.
+     * Network response received.
      */
 
     Network.responseReceived(
@@ -165,11 +403,17 @@ export async function startBrowserTrace(
                     status:
                         params.response.status,
 
+                    statusText:
+                        params.response.statusText,
+
                     url:
                         params.response.url,
 
                     type:
-                        params.type
+                        params.type,
+
+                    timestamp:
+                        Date.now()
                 }
             );
 
@@ -183,7 +427,7 @@ export async function startBrowserTrace(
 
 
     /*
-     * Resource completely loaded.
+     * Resource finished loading.
      */
 
     Network.loadingFinished(
@@ -196,8 +440,7 @@ export async function startBrowserTrace(
 
             /*
              * Check whether all resources
-             * belonging to the current page
-             * have finished.
+             * of the current page are done.
              */
 
             const traces =
@@ -233,8 +476,7 @@ export async function startBrowserTrace(
 
                 if (allFinished) {
 
-                    traceStore
-                        .finishPageLoad();
+                    traceStore.finishPageLoad();
                 }
             }
 
@@ -268,7 +510,10 @@ export async function startBrowserTrace(
                         params.canceled,
 
                     blockedReason:
-                        params.blockedReason
+                        params.blockedReason,
+
+                    timestamp:
+                        Date.now()
                 }
             );
 

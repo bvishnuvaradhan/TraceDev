@@ -24,6 +24,7 @@ class TraceStore {
     private currentPageLoad:
         Trace | undefined;
 
+
     private readonly _onEvent =
         new vscode.EventEmitter<TraceEvent>();
 
@@ -47,9 +48,11 @@ class TraceStore {
             data
         };
 
+
         this.events.push(event);
 
         this._onEvent.fire(event);
+
 
         return event;
     }
@@ -60,8 +63,8 @@ class TraceStore {
     ): Trace {
 
         /*
-         * If another page load is still active,
-         * finish it before starting a new one.
+         * Finish previous page load
+         * if one is still active.
          */
 
         if (this.currentPageLoad) {
@@ -102,7 +105,8 @@ class TraceStore {
 
                 pageLoadStarted: true,
 
-                traceId: trace.id
+                traceId:
+                    trace.id
             }
         });
 
@@ -114,6 +118,7 @@ class TraceStore {
     finishPageLoad(): void {
 
         if (!this.currentPageLoad) {
+
             return;
         }
 
@@ -135,11 +140,6 @@ class TraceStore {
             undefined;
 
 
-        /*
-         * Notify the Webview that
-         * the page load has finished.
-         */
-
         this._onEvent.fire({
 
             id: crypto.randomUUID(),
@@ -152,7 +152,8 @@ class TraceStore {
 
                 pageLoadFinished: true,
 
-                traceId: trace.id
+                traceId:
+                    trace.id
             }
         });
     }
@@ -163,6 +164,7 @@ class TraceStore {
     ): void {
 
         if (!this.currentPageLoad) {
+
             return;
         }
 
@@ -175,9 +177,21 @@ class TraceStore {
 
     startRequest(
         requestId: string,
+
         method: string,
+
         url: string,
-        type?: string
+
+        type?: string,
+
+        initiator?: {
+            type?: string;
+            url?: string;
+            lineNumber?: number;
+            columnNumber?: number;
+            stack?: any;
+        }
+
     ): NetworkTrace {
 
         const request: NetworkTrace = {
@@ -190,7 +204,11 @@ class TraceStore {
 
             startTime: Date.now(),
 
-            failed: false
+            failed: false,
+
+            type,
+
+            initiator
         };
 
 
@@ -201,19 +219,23 @@ class TraceStore {
 
 
         /*
-         * A Document request represents
-         * the beginning of a page load.
+         * Document request starts
+         * a page load.
          */
 
-        if (type === "Document") {
+        if (
+            type === "Document"
+        ) {
 
-            this.startPageLoad(url);
+            this.startPageLoad(
+                url
+            );
         }
 
 
         /*
-         * Resources belonging to
-         * the current page load.
+         * Add browser resources
+         * to the current page load.
          */
 
         if (
@@ -238,7 +260,8 @@ class TraceStore {
                 startTime:
                     request.startTime,
 
-                failed: false,
+                failed:
+                    false,
 
                 type
             });
@@ -251,7 +274,9 @@ class TraceStore {
 
     completeRequest(
         requestId: string,
+
         status: number
+
     ): NetworkTrace | undefined {
 
         const request =
@@ -261,6 +286,7 @@ class TraceStore {
 
 
         if (!request) {
+
             return undefined;
         }
 
@@ -283,7 +309,7 @@ class TraceStore {
 
 
         /*
-         * Update corresponding
+         * Update the corresponding
          * page-load resource.
          */
 
@@ -326,6 +352,7 @@ class TraceStore {
     ): void {
 
         if (!this.currentPageLoad) {
+
             return;
         }
 
@@ -339,6 +366,7 @@ class TraceStore {
 
 
         if (!resource) {
+
             return;
         }
 
@@ -374,14 +402,18 @@ class TraceStore {
     getTraces():
         Trace[] {
 
-        return [...this.traces];
+        return [
+            ...this.traces
+        ];
     }
 
 
     getAll():
         TraceEvent[] {
 
-        return [...this.events];
+        return [
+            ...this.events
+        ];
     }
 
 
