@@ -12,10 +12,10 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-        {
-            "command": "tracedev.startTrace",
-            "title": "TraceDev: Start Trace"
-        }
+      {
+        "command": "tracedev.startTrace",
+        "title": "TraceDev: Start Trace"
+      }
     ]
   },
   "scripts": {
@@ -27,17 +27,20 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.134.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "24.x",
-    "typescript-eslint": "^8.61.1",
+    "@types/vscode": "^1.134.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
     "eslint": "^10.5.0",
     "typescript": "^6.0.3",
-    "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.0.0"
+    "typescript-eslint": "^8.61.1"
   },
   "overrides": {
     "diff": "^8.0.4",
     "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "chrome-remote-interface": "^0.34.0"
   }
 }
