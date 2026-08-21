@@ -1,10 +1,18 @@
 import * as vscode from "vscode";
 
 import {
-    traceStore,
+    traceStore
+} from "../tracing/traceStore";
+
+import {
     TraceEvent,
     NetworkTrace
-} from "../tracing/traceStore";
+} from "../tracing/traceStoreTypes";
+
+import {
+    Trace
+} from "../tracing/traceModel";
+
 
 export class TracePanel {
 
@@ -17,6 +25,7 @@ export class TracePanel {
     private readonly disposables:
         vscode.Disposable[] = [];
 
+
     private constructor(
         panel: vscode.WebviewPanel
     ) {
@@ -26,26 +35,46 @@ export class TracePanel {
         this.panel.webview.html =
             this.getHtml();
 
-        // Send existing data when panel opens
+
+        /*
+         * Send existing data when
+         * the panel is opened.
+         */
+
         this.sendExistingData();
 
-        // Listen for new trace events
+
+        /*
+         * Listen for new TraceStore events.
+         */
+
         this.disposables.push(
             traceStore.onEvent(
                 (event) => {
-                    this.handleEvent(event);
+
+                    this.handleEvent(
+                        event
+                    );
                 }
             )
         );
 
+
+        /*
+         * Handle panel closing.
+         */
+
         this.panel.onDidDispose(
             () => {
+
                 this.dispose();
+
             },
             null,
             this.disposables
         );
     }
+
 
     public static createOrShow(
         extensionUri: vscode.Uri
@@ -54,46 +83,89 @@ export class TracePanel {
         const column =
             vscode.ViewColumn.Two;
 
-        if (TracePanel.currentPanel) {
+
+        if (
+            TracePanel.currentPanel
+        ) {
 
             TracePanel.currentPanel
-                .panel.reveal(column);
+                .panel.reveal(
+                    column
+                );
 
             return;
         }
 
+
         const panel =
             vscode.window.createWebviewPanel(
                 "tracedev",
+
                 "TraceDev",
+
                 column,
+
                 {
                     enableScripts: true
                 }
             );
 
+
         TracePanel.currentPanel =
-            new TracePanel(panel);
+            new TracePanel(
+                panel
+            );
     }
+
+
+    /*
+     * Send existing TraceStore data
+     * to the Webview.
+     */
 
     private sendExistingData() {
 
-        const requests =
+        const requests:
+            NetworkTrace[] =
             traceStore.getRequests();
 
-        const events =
+
+        const events:
+            TraceEvent[] =
             traceStore.getAll();
 
+
+        const traces:
+            Trace[] =
+            traceStore.getTraces();
+
+
         this.panel.webview.postMessage({
-            type: "initialData",
+
+            type:
+                "initialData",
+
             requests,
-            events
+
+            events,
+
+            traces
         });
     }
+
+
+    /*
+     * Handle new TraceStore events.
+     */
 
     private handleEvent(
         event: TraceEvent
     ) {
+
+        /*
+         * Network events cause
+         * the network list to refresh.
+         */
 
         if (
             event.type === "request" ||
@@ -101,23 +173,44 @@ export class TracePanel {
         ) {
 
             this.panel.webview.postMessage({
-                type: "networkUpdate",
+
+                type:
+                    "networkUpdate",
+
                 requests:
-                    traceStore.getRequests()
+                    traceStore.getRequests(),
+
+                traces:
+                    traceStore.getTraces()
             });
 
             return;
         }
 
+
+        /*
+         * Console and exception events
+         * are sent individually.
+         */
+
         this.panel.webview.postMessage({
-            type: "traceEvent",
+
+            type:
+                "traceEvent",
+
             event
         });
     }
 
+
+    /*
+     * Webview HTML.
+     */
+
     private getHtml(): string {
 
         return `
+
 <!DOCTYPE html>
 
 <html>
@@ -132,7 +225,9 @@ export class TracePanel {
              initial-scale=1.0"
 >
 
+
 <style>
+
 
 body {
 
@@ -145,177 +240,417 @@ body {
     background:
         var(--vscode-editor-background);
 
-    padding: 20px;
+    padding:
+        20px;
+
+    margin:
+        0;
 }
+
 
 h1 {
 
-    font-size: 24px;
+    font-size:
+        24px;
 
-    margin-bottom: 20px;
+    margin-bottom:
+        20px;
 }
+
 
 h2 {
 
-    font-size: 16px;
+    font-size:
+        15px;
 
-    margin-top: 28px;
+    margin-top:
+        28px;
 
-    margin-bottom: 12px;
+    margin-bottom:
+        12px;
+
+    letter-spacing:
+        0.5px;
 }
+
+
+/* Browser status */
 
 .status {
 
-    padding: 12px;
+    padding:
+        12px;
 
-    border-radius: 7px;
+    border-radius:
+        7px;
 
     background:
-        var(--vscode-textBlockQuote-background);
+        var(
+            --vscode-textBlockQuote-background
+        );
 
-    margin-bottom: 25px;
+    margin-bottom:
+        25px;
 
-    font-size: 14px;
+    font-size:
+        13px;
 }
+
 
 .status-dot {
 
-    display: inline-block;
+    display:
+        inline-block;
 
-    width: 10px;
+    width:
+        9px;
 
-    height: 10px;
+    height:
+        9px;
 
-    border-radius: 50%;
+    border-radius:
+        50%;
 
-    background: #4ade80;
+    background:
+        #4ade80;
 
-    margin-right: 8px;
+    margin-right:
+        8px;
 }
+
+
+/* Page load */
+
+.page-load {
+
+    padding:
+        14px;
+
+    margin:
+        10px 0;
+
+    border-radius:
+        7px;
+
+    background:
+        var(
+            --vscode-editor-inactiveSelectionBackground
+        );
+
+    border-left:
+        4px solid #60a5fa;
+}
+
+
+.page-title {
+
+    font-size:
+        14px;
+
+    font-weight:
+        bold;
+
+    margin-bottom:
+        8px;
+}
+
+
+.page-url {
+
+    font-family:
+        monospace;
+
+    font-size:
+        12px;
+
+    opacity:
+        0.8;
+
+    word-break:
+        break-all;
+}
+
+
+.page-meta {
+
+    margin-top:
+        8px;
+
+    font-size:
+        12px;
+
+    opacity:
+        0.7;
+}
+
+
+/* Resources */
+
+.resource {
+
+    margin-top:
+        8px;
+
+    padding:
+        9px;
+
+    border-radius:
+        5px;
+
+    background:
+        var(
+            --vscode-editor-background
+        );
+
+    border-left:
+        3px solid #4ade80;
+}
+
+
+.resource.failed {
+
+    border-left-color:
+        #f87171;
+}
+
+
+.resource-line {
+
+    display:
+        flex;
+
+    gap:
+        8px;
+
+    align-items:
+        center;
+
+    font-family:
+        monospace;
+
+    font-size:
+        12px;
+}
+
+
+.resource-method {
+
+    font-weight:
+        bold;
+}
+
+
+.resource-status {
+
+    margin-left:
+        auto;
+
+    font-weight:
+        bold;
+}
+
+
+.resource-url {
+
+    margin-top:
+        5px;
+
+    font-family:
+        monospace;
+
+    font-size:
+        11px;
+
+    opacity:
+        0.75;
+
+    word-break:
+        break-all;
+}
+
+
+.resource-time {
+
+    margin-top:
+        5px;
+
+    font-size:
+        11px;
+
+    opacity:
+        0.65;
+}
+
+
+/* Network */
 
 .network-card {
 
-    padding: 13px;
+    padding:
+        12px;
 
-    margin: 8px 0;
+    margin:
+        7px 0;
 
-    border-radius: 6px;
+    border-radius:
+        6px;
 
     background:
-        var(--vscode-editor-inactiveSelectionBackground);
+        var(
+            --vscode-editor-inactiveSelectionBackground
+        );
 
-    border-left: 4px solid #4ade80;
-
-    cursor: pointer;
+    border-left:
+        4px solid #4ade80;
 }
+
 
 .network-card.failed {
 
-    border-left-color: #f87171;
+    border-left-color:
+        #f87171;
 }
 
-.network-card.pending {
-
-    border-left-color: #facc15;
-}
 
 .network-main {
 
-    display: flex;
+    display:
+        flex;
 
-    align-items: center;
+    align-items:
+        center;
 
-    gap: 10px;
+    gap:
+        10px;
 
-    font-family: monospace;
+    font-family:
+        monospace;
 
-    font-size: 14px;
+    font-size:
+        13px;
 }
 
-.method {
 
-    font-weight: bold;
+.network-status {
+
+    margin-left:
+        auto;
+
+    font-weight:
+        bold;
 }
 
-.status-code {
 
-    margin-left: auto;
+.network-url {
 
-    font-weight: bold;
+    margin-top:
+        6px;
+
+    font-family:
+        monospace;
+
+    font-size:
+        11px;
+
+    opacity:
+        0.75;
+
+    word-break:
+        break-all;
 }
 
-.url {
 
-    margin-top: 7px;
+.network-meta {
 
-    font-family: monospace;
+    margin-top:
+        6px;
 
-    font-size: 12px;
+    font-size:
+        11px;
 
-    opacity: 0.8;
-
-    word-break: break-all;
+    opacity:
+        0.65;
 }
 
-.meta {
 
-    margin-top: 7px;
-
-    font-size: 12px;
-
-    opacity: 0.7;
-}
+/* Console */
 
 .console-card {
 
-    padding: 11px;
+    padding:
+        10px;
 
-    margin: 7px 0;
+    margin:
+        7px 0;
 
-    border-radius: 6px;
-
-    background:
-        var(--vscode-editor-inactiveSelectionBackground);
-
-    border-left: 4px solid #facc15;
-
-    font-family: monospace;
-
-    font-size: 13px;
-}
-
-.exception-card {
-
-    padding: 11px;
-
-    margin: 7px 0;
-
-    border-radius: 6px;
+    border-radius:
+        6px;
 
     background:
-        var(--vscode-editor-inactiveSelectionBackground);
+        var(
+            --vscode-editor-inactiveSelectionBackground
+        );
 
-    border-left: 4px solid #f87171;
+    border-left:
+        4px solid #facc15;
 
-    font-family: monospace;
+    font-family:
+        monospace;
 
-    font-size: 13px;
+    font-size:
+        12px;
 }
+
+
+/* Errors */
+
+.error-card {
+
+    padding:
+        10px;
+
+    margin:
+        7px 0;
+
+    border-radius:
+        6px;
+
+    background:
+        var(
+            --vscode-editor-inactiveSelectionBackground
+        );
+
+    border-left:
+        4px solid #f87171;
+
+    font-family:
+        monospace;
+
+    font-size:
+        12px;
+}
+
 
 .empty {
 
-    opacity: 0.5;
+    opacity:
+        0.5;
 
-    padding: 10px 0;
+    padding:
+        10px 0;
 }
+
 
 </style>
 
 </head>
 
+
 <body>
 
+
 <h1>TraceDev</h1>
+
 
 <div class="status">
 
@@ -325,55 +660,92 @@ h2 {
 
 </div>
 
+
+<h2>PAGE LOADS</h2>
+
+<div id="pageLoads">
+
+    <div class="empty">
+
+        Waiting for page loads...
+
+    </div>
+
+</div>
+
+
 <h2>NETWORK</h2>
 
 <div id="network">
 
     <div class="empty">
+
         Waiting for network activity...
+
     </div>
 
 </div>
+
 
 <h2>CONSOLE</h2>
 
 <div id="console">
 
     <div class="empty">
+
         No console events yet.
+
     </div>
 
 </div>
+
 
 <h2>ERRORS</h2>
 
 <div id="errors">
 
     <div class="empty">
+
         No runtime errors.
+
     </div>
 
 </div>
 
+
+
 <script>
+
 
 const vscode =
     acquireVsCodeApi();
+
+
+const pageLoads =
+    document.getElementById(
+        "pageLoads"
+    );
+
 
 const network =
     document.getElementById(
         "network"
     );
 
+
 const consoleContainer =
     document.getElementById(
         "console"
     );
 
+
 const errors =
     document.getElementById(
         "errors"
     );
+
+
+let traces = [];
 
 let requests = [];
 
@@ -382,6 +754,12 @@ let consoleEvents = [];
 let errorEvents = [];
 
 
+
+/*
+ * Receive messages from
+ * the TraceDev extension.
+ */
+
 window.addEventListener(
     "message",
     (message) => {
@@ -389,34 +767,53 @@ window.addEventListener(
         const data =
             message.data;
 
+
+        /*
+         * Initial data.
+         */
+
         if (
             data.type ===
             "initialData"
         ) {
 
+            traces =
+                data.traces || [];
+
+
             requests =
                 data.requests || [];
 
+
+            const events =
+                data.events || [];
+
+
             consoleEvents =
-                (data.events || [])
-                    .filter(
-                        event =>
-                            event.type ===
-                            "console"
-                    );
+                events.filter(
+                    event =>
+                        event.type ===
+                        "console"
+                );
+
 
             errorEvents =
-                (data.events || [])
-                    .filter(
-                        event =>
-                            event.type ===
-                                "exception"
-                    );
+                events.filter(
+                    event =>
+                        event.type ===
+                        "exception"
+                );
+
 
             renderAll();
 
             return;
         }
+
+
+        /*
+         * Network update.
+         */
 
         if (
             data.type ===
@@ -426,45 +823,66 @@ window.addEventListener(
             requests =
                 data.requests || [];
 
+
+            traces =
+                data.traces || [];
+
+
+            renderPageLoads();
+
             renderNetwork();
 
             return;
         }
+
+
+        /*
+         * New console / exception.
+         */
 
         if (
             data.type ===
             "traceEvent"
         ) {
 
+            const event =
+                data.event;
+
+
             if (
-                data.event.type ===
+                event.type ===
                 "console"
             ) {
 
                 consoleEvents.push(
-                    data.event
+                    event
                 );
 
                 renderConsole();
             }
 
+
             if (
-                data.event.type ===
+                event.type ===
                 "exception"
             ) {
 
                 errorEvents.push(
-                    data.event
+                    event
                 );
 
                 renderErrors();
             }
         }
+
     }
 );
 
 
+
 function renderAll() {
+
+    renderPageLoads();
 
     renderNetwork();
 
@@ -474,9 +892,223 @@ function renderAll() {
 }
 
 
+
+/*
+ * PAGE LOADS
+ */
+
+function renderPageLoads() {
+
+    if (
+        traces.length === 0
+    ) {
+
+        pageLoads.innerHTML =
+            '<div class="empty">' +
+            'Waiting for page loads...' +
+            '</div>';
+
+        return;
+    }
+
+
+    pageLoads.innerHTML =
+        "";
+
+
+    [...traces]
+        .reverse()
+        .forEach(
+            trace => {
+
+                if (
+                    trace.kind !==
+                    "page-load"
+                ) {
+
+                    return;
+                }
+
+
+                const card =
+                    document.createElement(
+                        "div"
+                    );
+
+
+                card.className =
+                    "page-load";
+
+
+                const duration =
+                    trace.duration !==
+                    undefined
+
+                        ? trace.duration +
+                          " ms"
+
+                        : "loading";
+
+
+                const start =
+                    new Date(
+                        trace.startTime
+                    )
+                    .toLocaleTimeString();
+
+
+                card.innerHTML =
+
+                    '<div class="page-title">' +
+
+                        '🌐 PAGE LOAD' +
+
+                    '</div>' +
+
+
+                    '<div class="page-url">' +
+
+                        escapeHtml(
+                            trace.name
+                        ) +
+
+                    '</div>' +
+
+
+                    '<div class="page-meta">' +
+
+                        start +
+
+                        ' • ' +
+
+                        duration +
+
+                    '</div>';
+
+
+                /*
+                 * Resources.
+                 */
+
+                if (
+                    trace.resources &&
+                    trace.resources.length > 0
+                ) {
+
+                    trace.resources.forEach(
+                        resource => {
+
+                            const element =
+                                document.createElement(
+                                    "div"
+                                );
+
+
+                            element.className =
+                                "resource " +
+                                (
+                                    resource.failed
+                                        ? "failed"
+                                        : ""
+                                );
+
+
+                            const status =
+                                resource.status ??
+                                "…";
+
+
+                            const duration =
+                                resource.duration !==
+                                undefined
+
+                                    ? resource.duration +
+                                      " ms"
+
+                                    : "loading";
+
+
+                            const icon =
+                                getResourceIcon(
+                                    resource.type
+                                );
+
+
+                            element.innerHTML =
+
+                                '<div class="resource-line">' +
+
+                                    '<span>' +
+                                        icon +
+                                    '</span>' +
+
+                                    '<span class="resource-method">' +
+
+                                        escapeHtml(
+                                            resource.method
+                                        ) +
+
+                                    '</span>' +
+
+                                    '<span class="resource-status">' +
+
+                                        status +
+
+                                    '</span>' +
+
+                                '</div>' +
+
+
+                                '<div class="resource-url">' +
+
+                                    escapeHtml(
+                                        resource.url
+                                    ) +
+
+                                '</div>' +
+
+
+                                '<div class="resource-time">' +
+
+                                    duration +
+
+                                    ' • ' +
+
+                                    (
+                                        resource.failed
+                                            ? "❌ Failed"
+                                            : "✅ Success"
+                                    ) +
+
+                                '</div>';
+
+
+                            card.appendChild(
+                                element
+                            );
+                        }
+                    );
+                }
+
+
+                pageLoads.appendChild(
+                    card
+                );
+            }
+        );
+}
+
+
+
+/*
+ * NETWORK
+ */
+
 function renderNetwork() {
 
-    if (requests.length === 0) {
+    if (
+        requests.length === 0
+    ) {
 
         network.innerHTML =
             '<div class="empty">' +
@@ -486,79 +1118,115 @@ function renderNetwork() {
         return;
     }
 
-    network.innerHTML = "";
+
+    network.innerHTML =
+        "";
+
 
     [...requests]
         .reverse()
         .forEach(
             request => {
 
+                /*
+                 * Don't duplicate
+                 * page-load resources
+                 * in the general network
+                 * section.
+                 */
+
+                const isPageResource =
+                    traces.some(
+                        trace =>
+                            trace.resources.some(
+                                resource =>
+                                    resource.requestId ===
+                                    request.requestId
+                            )
+                    );
+
+
+                if (isPageResource) {
+                    return;
+                }
+
+
                 const card =
                     document.createElement(
                         "div"
                     );
 
-                const failed =
-                    request.failed;
-
-                const pending =
-                    !request.status;
 
                 card.className =
                     "network-card " +
+
                     (
-                        failed
+                        request.failed
                             ? "failed"
-                            : pending
-                                ? "pending"
-                                : ""
+                            : ""
                     );
 
+
                 const status =
-                    request.status
-                        ? request.status
-                        : "…";
+                    request.status ??
+                    "…";
+
 
                 const duration =
                     request.duration !==
                     undefined
+
                         ? request.duration +
                           " ms"
+
                         : "pending";
+
 
                 card.innerHTML =
 
                     '<div class="network-main">' +
 
-                        '<span class="method">' +
+                        '<span>' +
+
                             escapeHtml(
                                 request.method
                             ) +
+
                         '</span>' +
 
-                        '<span class="status-code">' +
+
+                        '<span class="network-status">' +
+
                             status +
+
                         '</span>' +
 
                     '</div>' +
 
-                    '<div class="url">' +
+
+                    '<div class="network-url">' +
+
                         escapeHtml(
                             request.url
                         ) +
+
                     '</div>' +
 
-                    '<div class="meta">' +
+
+                    '<div class="network-meta">' +
+
                         duration +
+
                         ' • ' +
+
                         (
-                            failed
+                            request.failed
                                 ? "❌ Failed"
-                                : pending
-                                    ? "⏳ Pending"
-                                    : "✅ Success"
+                                : "✅ Success"
                         ) +
+
                     '</div>';
+
 
                 network.appendChild(
                     card
@@ -567,6 +1235,11 @@ function renderNetwork() {
         );
 }
 
+
+
+/*
+ * CONSOLE
+ */
 
 function renderConsole() {
 
@@ -582,8 +1255,10 @@ function renderConsole() {
         return;
     }
 
+
     consoleContainer.innerHTML =
         "";
+
 
     [...consoleEvents]
         .reverse()
@@ -595,19 +1270,40 @@ function renderConsole() {
                         "div"
                     );
 
+
                 card.className =
                     "console-card";
 
+
+                const time =
+                    new Date(
+                        event.timestamp
+                    )
+                    .toLocaleTimeString();
+
+
                 card.textContent =
-                    "📝 " +
+
+                    time +
+
+                    " • 📝 " +
+
                     event.data.type;
 
+
                 consoleContainer
-                    .appendChild(card);
+                    .appendChild(
+                        card
+                    );
             }
         );
 }
 
+
+
+/*
+ * ERRORS
+ */
 
 function renderErrors() {
 
@@ -623,7 +1319,10 @@ function renderErrors() {
         return;
     }
 
-    errors.innerHTML = "";
+
+    errors.innerHTML =
+        "";
+
 
     [...errorEvents]
         .reverse()
@@ -635,15 +1334,29 @@ function renderErrors() {
                         "div"
                     );
 
+
                 card.className =
-                    "exception-card";
+                    "error-card";
+
+
+                const time =
+                    new Date(
+                        event.timestamp
+                    )
+                    .toLocaleTimeString();
+
 
                 card.textContent =
-                    "🔴 " +
+
+                    time +
+
+                    " • 🔴 " +
+
                     (
                         event.data.text ||
                         "Runtime exception"
                     );
+
 
                 errors.appendChild(
                     card
@@ -653,43 +1366,92 @@ function renderErrors() {
 }
 
 
-function escapeHtml(value) {
+
+/*
+ * Resource icons.
+ */
+
+function getResourceIcon(
+    type
+) {
+
+    switch (type) {
+
+        case "Document":
+            return "📄";
+
+        case "Script":
+            return "⚙️";
+
+        case "Stylesheet":
+            return "🎨";
+
+        case "Image":
+            return "🖼️";
+
+        case "Font":
+            return "🔤";
+
+        default:
+            return "🌐";
+    }
+}
+
+
+
+/*
+ * Prevent HTML injection.
+ */
+
+function escapeHtml(
+    value
+) {
 
     return String(value)
+
         .replace(
             /&/g,
             "&amp;"
         )
+
         .replace(
             /</g,
             "&lt;"
         )
+
         .replace(
             />/g,
             "&gt;"
         )
+
         .replace(
             /"/g,
             "&quot;"
         )
+
         .replace(
             /'/g,
             "&#039;"
         );
 }
 
+
 </script>
+
 
 </body>
 
 </html>
+
 `;
     }
+
 
     public dispose() {
 
         TracePanel.currentPanel =
             undefined;
+
 
         while (
             this.disposables.length
@@ -698,10 +1460,13 @@ function escapeHtml(value) {
             const disposable =
                 this.disposables.pop();
 
+
             if (disposable) {
+
                 disposable.dispose();
             }
         }
+
 
         this.panel.dispose();
     }
