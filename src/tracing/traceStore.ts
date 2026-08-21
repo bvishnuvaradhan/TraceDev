@@ -11,6 +11,10 @@ import {
     TraceResource
 } from "./traceModel";
 
+import {
+    sessionStore
+} from "./sessionStore";
+
 
 class TraceStore {
 
@@ -32,6 +36,13 @@ class TraceStore {
         this._onEvent.event;
 
 
+    /*
+     * Add a TraceDev event.
+     *
+     * All request, response,
+     * console and exception events
+     * pass through here.
+     */
     add(
         type: TraceEventType,
         data: any
@@ -49,30 +60,57 @@ class TraceStore {
         };
 
 
-        this.events.push(event);
+        /*
+         * Store globally.
+         */
+        this.events.push(
+            event
+        );
 
-        this._onEvent.fire(event);
+
+        /*
+         * Also attach the event
+         * to the active Trace Session.
+         */
+        sessionStore.addEvent(
+            event
+        );
+
+
+        /*
+         * Notify the UI.
+         */
+        this._onEvent.fire(
+            event
+        );
 
 
         return event;
     }
 
 
+    /*
+     * Start a new page-load trace.
+     */
     startPageLoad(
         url: string
     ): Trace {
 
         /*
-         * Finish previous page load
+         * Finish the previous page load
          * if one is still active.
          */
-
-        if (this.currentPageLoad) {
+        if (
+            this.currentPageLoad
+        ) {
 
             this.finishPageLoad();
         }
 
 
+        /*
+         * Create the page-load trace.
+         */
         const trace: Trace = {
 
             id: crypto.randomUUID(),
@@ -87,37 +125,65 @@ class TraceStore {
         };
 
 
-        this.traces.push(trace);
+        /*
+         * Store the trace.
+         */
+        this.traces.push(
+            trace
+        );
 
+
+        /*
+         * Make this the active page load.
+         */
         this.currentPageLoad =
             trace;
 
 
-        this._onEvent.fire({
+        /*
+         * Start a corresponding
+         * Trace Session.
+         */
+        sessionStore.startSession(
+            url,
+            trace.startTime
+        );
 
-            id: crypto.randomUUID(),
 
-            type: "request",
-
-            timestamp: Date.now(),
-
-            data: {
+        /*
+         * Record page-load start
+         * as a normal TraceEvent.
+         *
+         * Because this uses add(),
+         * it is automatically attached
+         * to the active session.
+         */
+        this.add(
+            "request",
+            {
 
                 pageLoadStarted: true,
 
                 traceId:
-                    trace.id
+                    trace.id,
+
+                url
             }
-        });
+        );
 
 
         return trace;
     }
 
 
+    /*
+     * Finish the current page-load trace.
+     */
     finishPageLoad(): void {
 
-        if (!this.currentPageLoad) {
+        if (
+            !this.currentPageLoad
+        ) {
 
             return;
         }
@@ -127,6 +193,9 @@ class TraceStore {
             this.currentPageLoad;
 
 
+        /*
+         * Finish timing.
+         */
         trace.endTime =
             Date.now();
 
@@ -136,34 +205,49 @@ class TraceStore {
             trace.startTime;
 
 
+        /*
+         * Clear active page load.
+         */
         this.currentPageLoad =
             undefined;
 
 
-        this._onEvent.fire({
-
-            id: crypto.randomUUID(),
-
-            type: "response",
-
-            timestamp: Date.now(),
-
-            data: {
+        /*
+         * Record page-load completion.
+         *
+         * This also goes into the
+         * active Trace Session.
+         */
+        this.add(
+            "response",
+            {
 
                 pageLoadFinished: true,
 
                 traceId:
-                    trace.id
+                    trace.id,
+
+                url:
+                    trace.name,
+
+                duration:
+                    trace.duration
             }
-        });
+        );
     }
 
 
+    /*
+     * Add a browser resource to
+     * the current page-load trace.
+     */
     addResourceToPageLoad(
         resource: TraceResource
     ): void {
 
-        if (!this.currentPageLoad) {
+        if (
+            !this.currentPageLoad
+        ) {
 
             return;
         }
@@ -175,6 +259,9 @@ class TraceStore {
     }
 
 
+    /*
+     * Start tracking a network request.
+     */
     startRequest(
         requestId: string,
 
@@ -185,10 +272,15 @@ class TraceStore {
         type?: string,
 
         initiator?: {
+
             type?: string;
+
             url?: string;
+
             lineNumber?: number;
+
             columnNumber?: number;
+
             stack?: any;
         }
 
@@ -212,6 +304,9 @@ class TraceStore {
         };
 
 
+        /*
+         * Store request.
+         */
         this.requests.set(
             requestId,
             request
@@ -219,10 +314,9 @@ class TraceStore {
 
 
         /*
-         * Document request starts
-         * a page load.
+         * Document requests represent
+         * a new page load.
          */
-
         if (
             type === "Document"
         ) {
@@ -234,10 +328,9 @@ class TraceStore {
 
 
         /*
-         * Add browser resources
-         * to the current page load.
+         * Add browser resources to
+         * the active page load.
          */
-
         if (
             this.currentPageLoad &&
             (
@@ -272,6 +365,9 @@ class TraceStore {
     }
 
 
+    /*
+     * Complete a network request.
+     */
     completeRequest(
         requestId: string,
 
@@ -285,12 +381,17 @@ class TraceStore {
             );
 
 
-        if (!request) {
+        if (
+            !request
+        ) {
 
             return undefined;
         }
 
 
+        /*
+         * Finish timing.
+         */
         request.endTime =
             Date.now();
 
@@ -309,11 +410,12 @@ class TraceStore {
 
 
         /*
-         * Update the corresponding
+         * Update corresponding
          * page-load resource.
          */
-
-        if (this.currentPageLoad) {
+        if (
+            this.currentPageLoad
+        ) {
 
             const resource =
                 this.currentPageLoad.resources.find(
@@ -323,7 +425,9 @@ class TraceStore {
                 );
 
 
-            if (resource) {
+            if (
+                resource
+            ) {
 
                 resource.status =
                     status;
@@ -347,11 +451,16 @@ class TraceStore {
     }
 
 
+    /*
+     * Finish loading a page resource.
+     */
     finishPageResource(
         requestId: string
     ): void {
 
-        if (!this.currentPageLoad) {
+        if (
+            !this.currentPageLoad
+        ) {
 
             return;
         }
@@ -365,12 +474,17 @@ class TraceStore {
             );
 
 
-        if (!resource) {
+        if (
+            !resource
+        ) {
 
             return;
         }
 
 
+        /*
+         * Already finished.
+         */
         if (
             resource.endTime !==
             undefined
@@ -390,6 +504,9 @@ class TraceStore {
     }
 
 
+    /*
+     * Get all network requests.
+     */
     getRequests():
         NetworkTrace[] {
 
@@ -399,6 +516,9 @@ class TraceStore {
     }
 
 
+    /*
+     * Get all page-load traces.
+     */
     getTraces():
         Trace[] {
 
@@ -408,6 +528,9 @@ class TraceStore {
     }
 
 
+    /*
+     * Get all events.
+     */
     getAll():
         TraceEvent[] {
 
@@ -417,6 +540,20 @@ class TraceStore {
     }
 
 
+    /*
+     * Get the currently active
+     * page-load trace.
+     */
+    getCurrentPageLoad():
+        Trace | undefined {
+
+        return this.currentPageLoad;
+    }
+
+
+    /*
+     * Clear TraceStore data.
+     */
     clear(): void {
 
         this.events = [];
@@ -427,9 +564,18 @@ class TraceStore {
 
         this.currentPageLoad =
             undefined;
+
+
+        /*
+         * Also clear sessions.
+         */
+        sessionStore.clear();
     }
 
 
+    /*
+     * Dispose resources.
+     */
     dispose(): void {
 
         this._onEvent.dispose();
@@ -437,5 +583,8 @@ class TraceStore {
 }
 
 
+/*
+ * Single TraceStore instance.
+ */
 export const traceStore =
     new TraceStore();
