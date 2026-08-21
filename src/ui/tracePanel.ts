@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
+
 import {
     traceStore,
-    TraceEvent
+    TraceEvent,
+    NetworkTrace
 } from "../tracing/traceStore";
 
 export class TracePanel {
@@ -12,29 +14,26 @@ export class TracePanel {
     private readonly panel:
         vscode.WebviewPanel;
 
-    private readonly extensionUri:
-        vscode.Uri;
-
     private readonly disposables:
         vscode.Disposable[] = [];
 
     private constructor(
-        panel: vscode.WebviewPanel,
-        extensionUri: vscode.Uri
+        panel: vscode.WebviewPanel
     ) {
 
         this.panel = panel;
 
-        this.extensionUri =
-            extensionUri;
-
         this.panel.webview.html =
             this.getHtml();
 
+        // Send existing data when panel opens
+        this.sendExistingData();
+
+        // Listen for new trace events
         this.disposables.push(
             traceStore.onEvent(
                 (event) => {
-                    this.sendEvent(event);
+                    this.handleEvent(event);
                 }
             )
         );
@@ -55,9 +54,7 @@ export class TracePanel {
         const column =
             vscode.ViewColumn.Two;
 
-        if (
-            TracePanel.currentPanel
-        ) {
+        if (TracePanel.currentPanel) {
 
             TracePanel.currentPanel
                 .panel.reveal(column);
@@ -76,15 +73,41 @@ export class TracePanel {
             );
 
         TracePanel.currentPanel =
-            new TracePanel(
-                panel,
-                extensionUri
-            );
+            new TracePanel(panel);
     }
 
-    private sendEvent(
+    private sendExistingData() {
+
+        const requests =
+            traceStore.getRequests();
+
+        const events =
+            traceStore.getAll();
+
+        this.panel.webview.postMessage({
+            type: "initialData",
+            requests,
+            events
+        });
+    }
+
+    private handleEvent(
         event: TraceEvent
     ) {
+
+        if (
+            event.type === "request" ||
+            event.type === "response"
+        ) {
+
+            this.panel.webview.postMessage({
+                type: "networkUpdate",
+                requests:
+                    traceStore.getRequests()
+            });
+
+            return;
+        }
 
         this.panel.webview.postMessage({
             type: "traceEvent",
@@ -127,70 +150,163 @@ body {
 
 h1 {
 
-    font-size: 22px;
+    font-size: 24px;
 
     margin-bottom: 20px;
+}
+
+h2 {
+
+    font-size: 16px;
+
+    margin-top: 28px;
+
+    margin-bottom: 12px;
 }
 
 .status {
 
-    padding: 10px;
+    padding: 12px;
 
-    border-radius: 6px;
+    border-radius: 7px;
 
     background:
         var(--vscode-textBlockQuote-background);
 
-    margin-bottom: 20px;
+    margin-bottom: 25px;
+
+    font-size: 14px;
 }
 
-.section {
+.status-dot {
 
-    margin-top: 25px;
+    display: inline-block;
+
+    width: 10px;
+
+    height: 10px;
+
+    border-radius: 50%;
+
+    background: #4ade80;
+
+    margin-right: 8px;
 }
 
-.event {
+.network-card {
 
-    padding: 10px;
+    padding: 13px;
 
-    margin: 6px 0;
+    margin: 8px 0;
 
-    border-radius: 5px;
+    border-radius: 6px;
 
     background:
         var(--vscode-editor-inactiveSelectionBackground);
+
+    border-left: 4px solid #4ade80;
+
+    cursor: pointer;
+}
+
+.network-card.failed {
+
+    border-left-color: #f87171;
+}
+
+.network-card.pending {
+
+    border-left-color: #facc15;
+}
+
+.network-main {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 10px;
+
+    font-family: monospace;
+
+    font-size: 14px;
+}
+
+.method {
+
+    font-weight: bold;
+}
+
+.status-code {
+
+    margin-left: auto;
+
+    font-weight: bold;
+}
+
+.url {
+
+    margin-top: 7px;
+
+    font-family: monospace;
+
+    font-size: 12px;
+
+    opacity: 0.8;
+
+    word-break: break-all;
+}
+
+.meta {
+
+    margin-top: 7px;
+
+    font-size: 12px;
+
+    opacity: 0.7;
+}
+
+.console-card {
+
+    padding: 11px;
+
+    margin: 7px 0;
+
+    border-radius: 6px;
+
+    background:
+        var(--vscode-editor-inactiveSelectionBackground);
+
+    border-left: 4px solid #facc15;
 
     font-family: monospace;
 
     font-size: 13px;
 }
 
-.request {
+.exception-card {
 
-    border-left:
-        4px solid
-        var(--vscode-charts-blue);
+    padding: 11px;
+
+    margin: 7px 0;
+
+    border-radius: 6px;
+
+    background:
+        var(--vscode-editor-inactiveSelectionBackground);
+
+    border-left: 4px solid #f87171;
+
+    font-family: monospace;
+
+    font-size: 13px;
 }
 
-.response {
+.empty {
 
-    border-left:
-        4px solid
-        var(--vscode-charts-green);
-}
+    opacity: 0.5;
 
-.console {
-
-    border-left:
-        4px solid
-        var(--vscode-charts-yellow);
-}
-
-.exception {
-
-    border-left:
-        4px solid
-        var(--vscode-charts-red);
+    padding: 10px 0;
 }
 
 </style>
@@ -203,15 +319,39 @@ h1 {
 
 <div class="status">
 
-    🟢 Browser Connected
+    <span class="status-dot"></span>
+
+    Browser Connected
 
 </div>
 
-<div class="section">
+<h2>NETWORK</h2>
 
-    <h2>Live Trace</h2>
+<div id="network">
 
-    <div id="events"></div>
+    <div class="empty">
+        Waiting for network activity...
+    </div>
+
+</div>
+
+<h2>CONSOLE</h2>
+
+<div id="console">
+
+    <div class="empty">
+        No console events yet.
+    </div>
+
+</div>
+
+<h2>ERRORS</h2>
+
+<div id="errors">
+
+    <div class="empty">
+        No runtime errors.
+    </div>
 
 </div>
 
@@ -220,10 +360,27 @@ h1 {
 const vscode =
     acquireVsCodeApi();
 
-const events =
+const network =
     document.getElementById(
-        "events"
+        "network"
     );
+
+const consoleContainer =
+    document.getElementById(
+        "console"
+    );
+
+const errors =
+    document.getElementById(
+        "errors"
+    );
+
+let requests = [];
+
+let consoleEvents = [];
+
+let errorEvents = [];
+
 
 window.addEventListener(
     "message",
@@ -233,93 +390,292 @@ window.addEventListener(
             message.data;
 
         if (
-            data.type !==
-            "traceEvent"
+            data.type ===
+            "initialData"
         ) {
+
+            requests =
+                data.requests || [];
+
+            consoleEvents =
+                (data.events || [])
+                    .filter(
+                        event =>
+                            event.type ===
+                            "console"
+                    );
+
+            errorEvents =
+                (data.events || [])
+                    .filter(
+                        event =>
+                            event.type ===
+                                "exception"
+                    );
+
+            renderAll();
 
             return;
         }
 
-        addEvent(
-            data.event
-        );
+        if (
+            data.type ===
+            "networkUpdate"
+        ) {
+
+            requests =
+                data.requests || [];
+
+            renderNetwork();
+
+            return;
+        }
+
+        if (
+            data.type ===
+            "traceEvent"
+        ) {
+
+            if (
+                data.event.type ===
+                "console"
+            ) {
+
+                consoleEvents.push(
+                    data.event
+                );
+
+                renderConsole();
+            }
+
+            if (
+                data.event.type ===
+                "exception"
+            ) {
+
+                errorEvents.push(
+                    data.event
+                );
+
+                renderErrors();
+            }
+        }
     }
 );
 
 
-function addEvent(event) {
+function renderAll() {
 
-    const element =
-        document.createElement(
-            "div"
+    renderNetwork();
+
+    renderConsole();
+
+    renderErrors();
+}
+
+
+function renderNetwork() {
+
+    if (requests.length === 0) {
+
+        network.innerHTML =
+            '<div class="empty">' +
+            'Waiting for network activity...' +
+            '</div>';
+
+        return;
+    }
+
+    network.innerHTML = "";
+
+    [...requests]
+        .reverse()
+        .forEach(
+            request => {
+
+                const card =
+                    document.createElement(
+                        "div"
+                    );
+
+                const failed =
+                    request.failed;
+
+                const pending =
+                    !request.status;
+
+                card.className =
+                    "network-card " +
+                    (
+                        failed
+                            ? "failed"
+                            : pending
+                                ? "pending"
+                                : ""
+                    );
+
+                const status =
+                    request.status
+                        ? request.status
+                        : "…";
+
+                const duration =
+                    request.duration !==
+                    undefined
+                        ? request.duration +
+                          " ms"
+                        : "pending";
+
+                card.innerHTML =
+
+                    '<div class="network-main">' +
+
+                        '<span class="method">' +
+                            escapeHtml(
+                                request.method
+                            ) +
+                        '</span>' +
+
+                        '<span class="status-code">' +
+                            status +
+                        '</span>' +
+
+                    '</div>' +
+
+                    '<div class="url">' +
+                        escapeHtml(
+                            request.url
+                        ) +
+                    '</div>' +
+
+                    '<div class="meta">' +
+                        duration +
+                        ' • ' +
+                        (
+                            failed
+                                ? "❌ Failed"
+                                : pending
+                                    ? "⏳ Pending"
+                                    : "✅ Success"
+                        ) +
+                    '</div>';
+
+                network.appendChild(
+                    card
+                );
+            }
         );
+}
 
-    element.className =
-        "event " +
-        event.type;
 
-    const time =
-        new Date(
-            event.timestamp
-        ).toLocaleTimeString();
-
-    let content = "";
+function renderConsole() {
 
     if (
-        event.type ===
-        "request"
+        consoleEvents.length === 0
     ) {
 
-        content =
-            "🌐 " +
-            event.data.method +
-            " " +
-            event.data.url;
+        consoleContainer.innerHTML =
+            '<div class="empty">' +
+            'No console events yet.' +
+            '</div>';
+
+        return;
     }
 
-    else if (
-        event.type ===
-        "response"
+    consoleContainer.innerHTML =
+        "";
+
+    [...consoleEvents]
+        .reverse()
+        .forEach(
+            event => {
+
+                const card =
+                    document.createElement(
+                        "div"
+                    );
+
+                card.className =
+                    "console-card";
+
+                card.textContent =
+                    "📝 " +
+                    event.data.type;
+
+                consoleContainer
+                    .appendChild(card);
+            }
+        );
+}
+
+
+function renderErrors() {
+
+    if (
+        errorEvents.length === 0
     ) {
 
-        content =
-            "📡 " +
-            event.data.status +
-            " " +
-            event.data.url;
+        errors.innerHTML =
+            '<div class="empty">' +
+            'No runtime errors.' +
+            '</div>';
+
+        return;
     }
 
-    else if (
-        event.type ===
-        "console"
-    ) {
+    errors.innerHTML = "";
 
-        content =
-            "📝 Console: " +
-            event.data.type;
-    }
+    [...errorEvents]
+        .reverse()
+        .forEach(
+            event => {
 
-    else if (
-        event.type ===
-        "exception"
-    ) {
+                const card =
+                    document.createElement(
+                        "div"
+                    );
 
-        content =
-            "🔴 " +
-            (
-                event.data.text ||
-                "Runtime exception"
-            );
-    }
+                card.className =
+                    "exception-card";
 
-    element.textContent =
-        time +
-        "  " +
-        content;
+                card.textContent =
+                    "🔴 " +
+                    (
+                        event.data.text ||
+                        "Runtime exception"
+                    );
 
-    events.prepend(
-        element
-    );
+                errors.appendChild(
+                    card
+                );
+            }
+        );
+}
+
+
+function escapeHtml(value) {
+
+    return String(value)
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+        .replace(
+            /</g,
+            "&lt;"
+        )
+        .replace(
+            />/g,
+            "&gt;"
+        )
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+        .replace(
+            /'/g,
+            "&#039;"
+        );
 }
 
 </script>
